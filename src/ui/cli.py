@@ -24,6 +24,7 @@ from prettytable import PrettyTable
 from ..core.scanner import HostInfo, NetworkScanner
 from ..utils.config_manager import ConfigManager
 from ..utils.logger import info, error, debug, warning
+from ..reports.report_generator import ReportFormat
 
 class CLI:
     """Interface de linha de comando do ESK_NMAP"""
@@ -43,6 +44,8 @@ class CLI:
         parser.add_argument("--config", "-c", help="Caminho para arquivo de configuração personalizado")
         parser.add_argument("--profile", "-p", help="Perfil de scan a ser utilizado")
         parser.add_argument("--output", "-o", help="Arquivo de saída para o relatório")
+        parser.add_argument("--format", "-f", choices=[f.name.lower() for f in ReportFormat], 
+                          default="text", help="Formato do relatório (text, json, csv, xml)")
         parser.add_argument("--verbose", "-v", action="count", default=0, help="Aumentar nível de verbosidade")
         parser.add_argument("--quiet", "-q", action="store_true", help="Modo silencioso")
         
@@ -63,6 +66,7 @@ class CLI:
         print("  --config, -c  : Arquivo de configuração personalizado")
         print("  --profile, -p : Perfil de scan (basic, stealth, version, complete)")
         print("  --output, -o  : Arquivo de saída para o relatório")
+        print("  --format, -f  : Formato do relatório (text, json, csv, xml)")
         print("  --verbose, -v : Aumentar nível de verbosidade")
         print("  --quiet, -q   : Modo silencioso")
 

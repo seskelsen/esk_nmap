@@ -36,23 +36,23 @@
 - [ ] Mecanismo de throttling para não sobrecarregar a rede
 - [ ] Sistema de fila para grandes redes
 
-## 5. Interface de Usuário [🔴]
-- [ ] Adicionar barra de progresso
-- [ ] Menu interativo para seleção de perfis
-- [ ] Múltiplos formatos de saída (JSON, CSV, XML)
-- [ ] Modo silencioso para integração com outros sistemas
+## 5. Interface de Usuário [🟢]
+- [x] Adicionar barra de progresso
+- [x] Menu interativo para seleção de perfis
+- [x] Múltiplos formatos de saída (JSON, CSV, XML)
+- [x] Modo silencioso para integração com outros sistemas
 - [ ] Interface web básica (opcional)
 
-## 6. Segurança [🔴]
+## 6. Segurança [🟡]
+- [x] Verificação granular de permissões
+- [x] Sanitização de inputs
+- [x] Validação de configurações
 - [ ] Implementar rate limiting
-- [ ] Verificação granular de permissões
-- [ ] Sanitização de inputs
-- [ ] Validação de configurações
 - [ ] Auditoria de ações
 
-## 7. Otimização de Performance [🔴]
-- [ ] Cache de resultados DNS
-- [ ] Otimização do parsing de output
+## 7. Otimização de Performance [🟡]
+- [x] Cache de resultados DNS
+- [x] Otimização do parsing de output
 - [ ] Redução de chamadas redundantes
 - [ ] Profiling e otimização de código
 - [ ] Benchmark suite
@@ -64,17 +64,17 @@
 - [ ] Documentação para desenvolvedores
 - [ ] Repositório de plugins
 
-## 9. Documentação [🔴]
-- [ ] Docstrings em todas classes/métodos
+## 9. Documentação [🟡]
+- [x] Docstrings em todas classes/métodos
+- [x] Exemplos de uso
 - [ ] Documentação da API
-- [ ] Exemplos de uso
 - [ ] Guia de contribuição
 - [ ] Wiki do projeto
 
-## 10. Monitoramento [🔴]
+## 10. Monitoramento [🟡]
+- [x] Tempo de execução por scan
+- [x] Taxa de sucesso/falha
 - [ ] Métricas de performance
-- [ ] Tempo de execução por scan
-- [ ] Taxa de sucesso/falha
 - [ ] Uso de recursos
 - [ ] Dashboards
 
@@ -84,10 +84,17 @@
 1. ~~Sistema de Logging~~ ✅
 2. ~~Tratamento de Erros~~ ✅
 3. ~~Sistema de Configuração~~ ✅
+4. ~~Interface de Usuário~~ ✅
+5. **Revisão dos Testes Unitários** 🟡
+   - [ ] Aumentar cobertura do ConfigManager (atual: 26%)
+   - [ ] Melhorar testes do Scanner (atual: 12%)
+   - [ ] Documentar todos os casos de teste
+   - [ ] Implementar testes de integração
+   - [ ] Adicionar testes para casos de erro
 
 ### Média Prioridade
 4. Paralelização de Scans
-5. Interface de Usuário
+5. ~~Interface de Usuário~~ ✅
 6. Documentação
 
 ### Baixa Prioridade
@@ -98,6 +105,7 @@
 
 ## Dependências entre Tarefas
 - ~~Sistema de Logging deve ser implementado antes do Tratamento de Erros~~ ✅
+- ~~Sistema de Configuração é pré-requisito para Interface de Usuário~~ ✅
 - Sistema de Configuração é pré-requisito para Paralelização
 - Documentação deve ser atualizada conforme as features são implementadas
 - Monitoramento depende do Sistema de Logging

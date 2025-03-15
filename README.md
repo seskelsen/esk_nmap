@@ -15,7 +15,11 @@ Um scanner de rede avançado baseado no Nmap com interface amigável e relatóri
   - Completo
   - Personalizado
 - Detecção de firewalls
-- Relatórios detalhados em formato texto
+- Relatórios em múltiplos formatos:
+  - Texto (padrão)
+  - JSON (para integração com sistemas)
+  - CSV (para análise em planilhas)
+  - XML (para processamento estruturado)
 - Suporte completo para Windows e Linux
 - Cobertura de testes unitários > 70%
 - Sistema flexível de configuração via YAML

@@ -12,7 +12,7 @@ import sys
 import ipaddress
 from src.ui.cli import CLI
 from src.core.scanner import NetworkScanner
-from src.reports.report_generator import ReportGenerator
+from src.reports.report_generator import ReportGenerator, ReportFormat
 from src.utils.system_utils import SystemUtils
 from src.utils.logger import ESKLogger, info, error, debug, warning
 from src.utils.error_handler import ErrorHandler, ErrorCategory
@@ -49,7 +49,7 @@ def main():
             warning_msg = "Aviso: Executando sem privilégios de root. Algumas funcionalidades podem ser limitadas."
             warning(warning_msg)
             print(warning_msg)
-            if not cli.ask_continue_without_root():
+            if not args.quiet and not cli.ask_continue_without_root():
                 sys.exit(1)
 
         nmap_path = utils.find_nmap_path()
@@ -57,29 +57,41 @@ def main():
             error("Nmap não encontrado. Por favor, instale o Nmap e tente novamente.")
             sys.exit(1)
 
-        # Exibe banner e perfis disponíveis
-        cli.show_banner()
+        # Exibe banner se não estiver em modo silencioso
+        if not args.quiet:
+            cli.show_banner()
         
         # Seleciona o perfil de scan (da linha de comando ou interativamente)
         if args.profile and args.profile in cli.get_available_profiles():
             selected_profile = args.profile
-            print(f"Usando perfil de scan especificado: {selected_profile}")
+            if not args.quiet:
+                print(f"Usando perfil de scan especificado: {selected_profile}")
         else:
             if args.profile:
                 warning(f"Perfil '{args.profile}' não encontrado. Selecione um perfil disponível.")
-            selected_profile = cli.select_scan_profile()
+            
+            # Se estiver em modo silencioso, usa o perfil basic por padrão
+            if args.quiet:
+                selected_profile = 'basic'
+            else:
+                selected_profile = cli.select_scan_profile()
         
         # Inicializa o scanner com o perfil selecionado
         scanner = NetworkScanner(nmap_path)
         scanner.set_scan_profile(selected_profile)
+        scanner.set_quiet_mode(args.quiet)
+        
         info(f"Iniciando scan da rede {args.network}...")
 
         # Scan inicial de descoberta
         debug("Executando scan de descoberta")
         hosts = scanner.scan_network(args.network)
-        cli.display_hosts_table(hosts)
+        
+        # Exibe os resultados se não estiver em modo silencioso
+        if not args.quiet:
+            cli.display_hosts_table(hosts)
 
-        if hosts and (not args.quiet and cli.ask_detailed_scan()):
+        if hosts and (args.quiet or cli.ask_detailed_scan()):
             # Aqui é a mudança: passamos o dicionário de hosts completo
             detailed_results = {}
             for ip, host_info in hosts.items():
@@ -94,18 +106,21 @@ def main():
                     # Se não encontrou portas, mantém as informações iniciais
                     detailed_results[ip] = host_info
 
-            # Gerar relatório usando o ReportGenerator
+            # Determina o formato do relatório
+            report_format = ReportFormat[args.format.upper()]
+            
+            # Define o nome do arquivo de saída
             if args.output:
                 report_file = args.output
             else:
-                report_file = ReportGenerator.create_filename(args.network)
+                report_file = ReportGenerator.create_filename(args.network, report_format)
                 
             info(f"Gerando relatório em {report_file}")
-            ReportGenerator.generate_report(report_file, detailed_results, args.network)
+            ReportGenerator.generate_report(report_file, detailed_results, args.network, report_format)
             info(f"Relatório completo salvo em: {report_file}")
             
-            # Abre o arquivo do relatório para exibição se não estiver em modo silencioso
-            if not args.quiet:
+            # Se não estiver em modo silencioso e for formato texto, exibe o relatório
+            if not args.quiet and report_format == ReportFormat.TEXT:
                 with open(report_file, 'r', encoding='utf-8') as f:
                     print("\n" + f.read())
 

@@ -17,22 +17,47 @@ a qualquer MERCADO ou APLICAÇÃO EM PARTICULAR. Veja a
 Licença Pública Geral GNU para mais detalhes.
 """
 
-from typing import Dict
+from typing import Dict, List
 import time
+import json
+import csv
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
 from ..core.scanner import HostInfo
+from enum import Enum, auto
+
+class ReportFormat(Enum):
+    """Formatos suportados para relatórios"""
+    TEXT = auto()
+    JSON = auto()
+    CSV = auto()
+    XML = auto()
 
 class ReportGenerator:
     @staticmethod
-    def create_filename(network: str) -> str:
-        """Cria o nome do arquivo de relatório baseado na rede e timestamp"""
+    def create_filename(network: str, format: ReportFormat = ReportFormat.TEXT) -> str:
+        """Cria o nome do arquivo de relatório baseado na rede, timestamp e formato"""
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         # Substitui os pontos por underscores no nome da rede
         network_formatted = network.replace('.', '_').replace('/', '_')
-        return f"esk_nmap_report_{network_formatted}_{timestamp}.txt"
+        extension = format.name.lower()
+        return f"esk_nmap_report_{network_formatted}_{timestamp}.{extension}"
 
     @staticmethod
-    def generate_report(filename: str, hosts: Dict[str, HostInfo], network: str) -> None:
-        """Gera o relatório detalhado do scan"""
+    def generate_report(filename: str, hosts: Dict[str, HostInfo], network: str, format: ReportFormat = ReportFormat.TEXT) -> None:
+        """Gera o relatório no formato especificado"""
+        if format == ReportFormat.TEXT:
+            ReportGenerator._generate_text_report(filename, hosts, network)
+        elif format == ReportFormat.JSON:
+            ReportGenerator._generate_json_report(filename, hosts, network)
+        elif format == ReportFormat.CSV:
+            ReportGenerator._generate_csv_report(filename, hosts, network)
+        elif format == ReportFormat.XML:
+            ReportGenerator._generate_xml_report(filename, hosts, network)
+
+    @staticmethod
+    def _generate_text_report(filename: str, hosts: Dict[str, HostInfo], network: str) -> None:
+        """Gera o relatório em formato texto"""
         with open(filename, "w", encoding="utf-8") as f:
             # Cabeçalho
             f.write("=" * 60 + "\n")
@@ -88,3 +113,106 @@ class ReportGenerator:
                     f.write("\nNenhuma porta aberta encontrada\n")
                 
                 f.write("\n" + "=" * 60 + "\n")
+
+    @staticmethod
+    def _generate_json_report(filename: str, hosts: Dict[str, HostInfo], network: str) -> None:
+        """Gera o relatório em formato JSON"""
+        report_data = {
+            "metadata": {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "network": network,
+                "total_hosts": len(hosts),
+                "hosts_with_open_ports": len([h for h in hosts.values() if h.ports])
+            },
+            "hosts": {}
+        }
+
+        for ip, info in hosts.items():
+            report_data["hosts"][ip] = {
+                "status": info.status,
+                "hostname": info.hostname if info.hostname != "N/A" else None,
+                "mac": info.mac if info.mac != "N/A" else None,
+                "vendor": info.vendor if info.vendor != "N/A" else None,
+                "ports": [
+                    {"port": port, "service": service}
+                    for port, service in zip(info.ports, info.services)
+                ] if info.ports else []
+            }
+
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(report_data, f, indent=2, ensure_ascii=False)
+
+    @staticmethod
+    def _generate_csv_report(filename: str, hosts: Dict[str, HostInfo], network: str) -> None:
+        """Gera o relatório em formato CSV"""
+        with open(filename, "w", encoding="utf-8", newline='') as f:
+            writer = csv.writer(f)
+            
+            # Escreve o cabeçalho com metadados
+            writer.writerow(["# ESK_NMAP Report"])
+            writer.writerow(["# Data/Hora", time.strftime("%Y-%m-%d %H:%M:%S")])
+            writer.writerow(["# Rede", network])
+            writer.writerow(["# Total de hosts", str(len(hosts))])
+            writer.writerow(["# Hosts com portas abertas", str(len([h for h in hosts.values() if h.ports]))])
+            writer.writerow([])  # Linha em branco para separação
+            
+            # Escreve o cabeçalho da tabela de hosts
+            writer.writerow(["IP", "Status", "Hostname", "MAC", "Fabricante", "Portas", "Serviços"])
+            
+            # Escreve os dados dos hosts
+            for ip, info in hosts.items():
+                hostname = info.hostname if info.hostname != "N/A" else ""
+                mac = info.mac if info.mac != "N/A" else ""
+                vendor = info.vendor if info.vendor != "N/A" else ""
+                ports = "|".join(info.ports) if info.ports else ""
+                services = "|".join(info.services) if info.services else ""
+                
+                writer.writerow([
+                    ip,
+                    info.status,
+                    hostname,
+                    mac,
+                    vendor,
+                    ports,
+                    services
+                ])
+
+    @staticmethod
+    def _generate_xml_report(filename: str, hosts: Dict[str, HostInfo], network: str) -> None:
+        """Gera o relatório em formato XML"""
+        # Cria o elemento raiz
+        root = ET.Element("esk_nmap_report")
+        
+        # Adiciona metadados
+        metadata = ET.SubElement(root, "metadata")
+        ET.SubElement(metadata, "timestamp").text = time.strftime("%Y-%m-%d %H:%M:%S")
+        ET.SubElement(metadata, "network").text = network
+        ET.SubElement(metadata, "total_hosts").text = str(len(hosts))
+        ET.SubElement(metadata, "hosts_with_open_ports").text = str(len([h for h in hosts.values() if h.ports]))
+        
+        # Adiciona hosts
+        hosts_element = ET.SubElement(root, "hosts")
+        for ip, info in hosts.items():
+            host = ET.SubElement(hosts_element, "host")
+            ET.SubElement(host, "ip").text = ip
+            ET.SubElement(host, "status").text = info.status
+            
+            if info.hostname != "N/A":
+                ET.SubElement(host, "hostname").text = info.hostname
+            if info.mac != "N/A":
+                ET.SubElement(host, "mac").text = info.mac
+            if info.vendor != "N/A":
+                ET.SubElement(host, "vendor").text = info.vendor
+            
+            if info.ports:
+                ports = ET.SubElement(host, "ports")
+                for port, service in zip(info.ports, info.services):
+                    port_element = ET.SubElement(ports, "port")
+                    port_element.set("number", port)
+                    ET.SubElement(port_element, "service").text = service
+        
+        # Formata o XML para ser legível
+        xmlstr = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(xmlstr)

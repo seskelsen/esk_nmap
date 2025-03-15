@@ -5,6 +5,7 @@ dataclasses>=0.6; python_version < '3.7'
 pyinstaller>=6.5.0
 python-json-logger>=2.0.7  # Para formatação JSON dos logs
 PyYAML>=6.0.1  # Para o sistema de configuração
+tqdm>=4.66.0  # Para barras de progresso na linha de comando
 
 # Development dependencies
 pytest>=7.4.0

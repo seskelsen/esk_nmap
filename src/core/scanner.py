@@ -27,14 +27,15 @@ class ScannerError(Exception):
 class HostInfo:
     """Classe para armazenar informações de um host na rede."""
     
-    def __init__(self, ip: str, hostname: str = "", mac: str = "", vendor: str = "", status: str = "up"):
+    def __init__(self, ip: str, hostname: str = "", mac: str = "", vendor: str = "", 
+                 status: str = "up", ports: List[str] = None, services: List[str] = None):
         self.ip = ip
         self.hostname = hostname
         self.mac = mac
         self.vendor = vendor
         self.status = status
-        self.ports: List[str] = []
-        self.services: List[str] = []
+        self.ports = ports if ports is not None else []
+        self.services = services if services is not None else []
 
 class NetworkScanner:
     """Classe para realizar scans de rede usando o Nmap."""
