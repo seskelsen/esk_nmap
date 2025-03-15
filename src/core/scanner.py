@@ -15,6 +15,7 @@ import ipaddress
 from typing import Dict, List, Set, Optional
 import platform
 from ..utils.logger import info, debug, error
+from ..utils.config_manager import ConfigManager
 
 class ScannerError(Exception):
     """Exceção para erros relacionados ao scanner de rede."""
@@ -44,10 +45,7 @@ class NetworkScanner:
         """
         self.nmap_path = nmap_path
         self._scan_profile = "basic"
-        self._profile_args = {
-            "basic": ["-sn"],
-            "ports": ["-p", "80,443,22,23,25,53,110,139,445,3306,5432,8080"]
-        }
+        self.config_manager = ConfigManager()
     
     def set_scan_profile(self, profile: str) -> None:
         """
@@ -56,9 +54,11 @@ class NetworkScanner:
         Args:
             profile (str): Nome do perfil de scan
         """
-        if profile not in self._profile_args:
+        # Verifica se o perfil existe no ConfigManager
+        if profile not in self.config_manager._config.get('scan_profiles', {}):
             raise ScannerError(f"Perfil de scan desconhecido: {profile}")
         self._scan_profile = profile
+        debug(f"Perfil de scan definido: {profile}")
     
     def scan_network(self, network: str) -> Dict[str, HostInfo]:
         """
@@ -98,11 +98,27 @@ class NetworkScanner:
         Returns:
             Dict[str, HostInfo]: Hosts descobertos
         """
-        cmd = [self.nmap_path, "-sn", network]
+        # Obtém as opções do perfil de scan atual
+        profile = self.config_manager.get_scan_profile(self._scan_profile)
+        debug(f"Usando perfil: {profile['name']}")
+        
+        # Monta o comando base
+        cmd = [self.nmap_path]
+        
+        # Adiciona as opções do perfil se for um scan de descoberta
+        if "-sn" in profile['options'] or profile['options'] == ["-sn"]:
+            cmd.extend(profile['options'])
+        else:
+            # Se o perfil não incluir -sn, forçamos apenas para a descoberta
+            cmd.append("-sn")
+        
+        # Adiciona o alvo
+        cmd.append(network)
+        
         debug(f"Executando comando: {' '.join(cmd)}")
         
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        output, _ = process.communicate()
+        output, _ = process.communicate(timeout=self.config_manager.get_timeout('discovery'))
         
         if process.returncode != 0:
             raise ScannerError(f"Nmap retornou código de saída {process.returncode}")
@@ -266,20 +282,38 @@ class NetworkScanner:
         # Inicializa os resultados com informações básicas
         for ip in target_ips:
             results[ip] = HostInfo(ip=ip)
+        
+        # Obtém o perfil de scan atual
+        profile = self.config_manager.get_scan_profile(self._scan_profile)
             
         # Comando Nmap para scan detalhado
         target_list = ",".join(target_ips)
-        cmd = [
-            self.nmap_path, 
-            "-p", "80,443,22,23,25,53,110,139,445,3306,5432,8080,8443,21,3389,5900,1433,27017,6379",
-            "-sV", target_list
-        ]
+        cmd = [self.nmap_path]
+        
+        # Adiciona a lista de portas do perfil
+        cmd.extend(["-p", profile['ports']])
+        
+        # Adiciona as opções do perfil (exceto as que são apenas para descoberta)
+        for option in profile['options']:
+            if option != "-sn" and not option.startswith("-T"):
+                cmd.append(option)
+        
+        # Adiciona a detecção de versão se não estiver nas opções
+        if "-sV" not in cmd:
+            cmd.append("-sV")
+        
+        # Adiciona o timing baseado no perfil
+        cmd.extend([f"-T{profile['timing']}"])
+        
+        # Adiciona o alvo
+        cmd.append(target_list)
         
         debug(f"Executando comando: {' '.join(cmd)}")
         
         try:
+            timeout = self.config_manager.get_timeout('port_scan')
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            output, _ = process.communicate(timeout=180)
+            output, _ = process.communicate(timeout=timeout)
             
             if process.returncode == 0:
                 # Analisa a saída do scan detalhado
@@ -288,7 +322,7 @@ class NetworkScanner:
                 debug(f"Scan detalhado retornou código de erro {process.returncode}")
                 
         except subprocess.TimeoutExpired:
-            error("Scan detalhado expirou o tempo limite")
+            error(f"Scan detalhado expirou o tempo limite de {timeout}s")
             raise
         except Exception as e:
             error(f"Erro durante scan detalhado: {str(e)}")

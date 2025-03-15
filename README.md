@@ -18,6 +18,7 @@ Um scanner de rede avançado baseado no Nmap com interface amigável e relatóri
 - Relatórios detalhados em formato texto
 - Suporte completo para Windows e Linux
 - Cobertura de testes unitários > 70%
+- Sistema flexível de configuração via YAML
 
 ## Pré-requisitos
 
@@ -71,13 +72,26 @@ pip install -r requirements.txt
 
 ```bash
 # Usando código fonte
-python esk_nmap.py <rede>
+python esk_nmap.py <rede> [opções]
 
 # Usando executável
-./esk_nmap <rede>
+./esk_nmap <rede> [opções]
 
-# Exemplo
+# Exemplo básico
 python esk_nmap.py 192.168.1.0/24
+
+# Exemplo com opções
+python esk_nmap.py 192.168.1.0/24 --profile stealth --output relatorio_scan.txt
+```
+
+### Opções da Linha de Comando
+
+```
+  --config, -c  : Arquivo de configuração personalizado
+  --profile, -p : Perfil de scan (basic, stealth, version, complete, etc.)
+  --output, -o  : Arquivo de saída para o relatório
+  --verbose, -v : Aumentar nível de verbosidade
+  --quiet, -q   : Modo silencioso
 ```
 
 ### Perfis de Scan
@@ -108,6 +122,67 @@ python esk_nmap.py 192.168.1.0/24
    - Configure timing e agressividade
    - Total controle sobre o scan
 
+## Sistema de Configuração
+
+O ESK_NMAP utiliza um sistema flexível de configuração baseado em YAML, permitindo personalizar perfis de scan, timeouts, comportamentos de retry e formatos de relatório.
+
+### Arquivo de Configuração
+
+O arquivo padrão é `config.yaml` na raiz do projeto. Você pode especificar um arquivo de configuração alternativo com a opção `--config`.
+
+### Estrutura do Arquivo de Configuração
+
+```yaml
+# Perfis de scan disponíveis
+scan_profiles:
+  basic:
+    name: Scan Básico
+    description: Scan rápido para visão geral da rede
+    options: ["-T4", "-sn", "-n"]
+    ports: "21-23,25,53,80,443,3306,3389"
+    timing: 4
+  
+  stealth:
+    name: Scan Silencioso
+    description: Scan mais discreto usando SYN stealth
+    options: ["-sS", "-T2", "-n"]
+    ports: "21-23,25,53,80,443,3306,3389"
+    timing: 2
+  
+  # ... outros perfis ...
+
+# Configurações de timeout (em segundos)
+timeouts:
+  discovery: 180
+  port_scan: 300
+  version_scan: 120
+
+# Configurações de retry
+retry:
+  max_attempts: 3
+  delay_between_attempts: 5
+
+# Configurações de relatório
+reporting:
+  format: text
+  include_closed_ports: false
+  group_by_port: true
+```
+
+### Criando Perfis Personalizados
+
+Para criar um novo perfil de scan, adicione uma nova entrada na seção `scan_profiles`:
+
+```yaml
+scan_profiles:
+  meu_perfil:
+    name: Meu Perfil Personalizado
+    description: Descrição do meu perfil
+    options: ["-sV", "-T3", "--script=vuln"]
+    ports: "21-25,80,443,8080-8090"
+    timing: 3
+```
+
 ## Desenvolvimento
 
 ### Estrutura do Projeto
@@ -120,6 +195,7 @@ esk_nmap/
 │   ├── ui/          # Interface com usuário
 │   └── utils/       # Utilitários
 ├── tests/           # Testes unitários
+├── config.yaml      # Configuração padrão
 ├── requirements.txt # Dependências
 └── esk_nmap.py     # Ponto de entrada
 ```
