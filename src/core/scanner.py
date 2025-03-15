@@ -12,8 +12,11 @@ Este módulo contém as classes e funções para realizar scans de rede.
 import subprocess
 import re
 import ipaddress
+import time
+import threading
 from typing import Dict, List, Set, Optional
 import platform
+from tqdm import tqdm
 from ..utils.logger import info, debug, error
 from ..utils.config_manager import ConfigManager
 
@@ -46,6 +49,16 @@ class NetworkScanner:
         self.nmap_path = nmap_path
         self._scan_profile = "basic"
         self.config_manager = ConfigManager()
+        self.quiet_mode = False
+    
+    def set_quiet_mode(self, quiet: bool) -> None:
+        """
+        Define se o modo silencioso está ativo (sem barras de progresso).
+        
+        Args:
+            quiet (bool): True para modo silencioso, False para exibir barras de progresso
+        """
+        self.quiet_mode = quiet
     
     def set_scan_profile(self, profile: str) -> None:
         """
@@ -72,12 +85,73 @@ class NetworkScanner:
         """
         debug(f"Iniciando scan de rede em {network}")
         try:
-            # Tenta o scan de descoberta principal
-            results = self._discovery_scan(network)
-            if not results:
-                debug("Scan principal não encontrou hosts, tentando método alternativo")
-                results = self._fallback_discovery(network)
-            return results
+            # Exibe barra de progresso para a descoberta
+            if not self.quiet_mode:
+                # Calcula o tamanho da rede para estimar o tempo
+                try:
+                    net_size = sum(1 for _ in ipaddress.ip_network(network).hosts())
+                except ValueError:
+                    # Se for um único IP, considera tamanho 1
+                    net_size = 1
+                
+                # Estima o tempo baseado no tamanho da rede
+                est_time = min(max(5, int(net_size * 0.12)), 120)  # Entre 5s e 120s
+                
+                with tqdm(total=100, 
+                         desc=f"Descobrindo hosts em {network}", 
+                         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]") as pbar:
+                    
+                    # Inicia o scan em uma thread separada para poder atualizar a barra
+                    scan_result = [None]  # Para armazenar o resultado do scan
+                    scan_error = [None]   # Para armazenar possíveis erros
+                    
+                    def run_scan():
+                        try:
+                            scan_result[0] = self._discovery_scan(network)
+                        except Exception as e:
+                            scan_error[0] = e
+                    
+                    scan_thread = threading.Thread(target=run_scan)
+                    scan_thread.start()
+                    
+                    # Atualiza a barra de progresso enquanto o scan está em execução
+                    steps = min(50, est_time)  # Número de atualizações
+                    step_size = 100 / steps     # Tamanho de cada atualização
+                    sleep_time = est_time / steps  # Tempo entre atualizações
+                    
+                    for i in range(steps):
+                        if not scan_thread.is_alive():
+                            # O scan terminou antes do tempo estimado
+                            remaining = 100 - pbar.n
+                            if remaining > 0:
+                                pbar.update(remaining)
+                            break
+                        
+                        # Atualiza progressivamente
+                        progress = min(95, step_size * (i + 1))  # Nunca chega a 100% até terminar
+                        update_size = progress - pbar.n
+                        if update_size > 0:
+                            pbar.update(update_size)
+                        
+                        time.sleep(sleep_time)
+                    
+                    # Aguarda a conclusão do thread
+                    scan_thread.join()
+                    
+                    # Completa a barra se necessário
+                    if pbar.n < 100:
+                        pbar.update(100 - pbar.n)
+                    
+                    # Verifica se houve erro no scan
+                    if scan_error[0]:
+                        error(f"Erro durante o scan de rede: {str(scan_error[0])}")
+                        debug("Tentando método alternativo de descoberta")
+                        return self._fallback_discovery(network)
+                    
+                    return scan_result[0]
+            else:
+                # Modo silencioso, sem barra de progresso
+                return self._discovery_scan(network)
         except Exception as e:
             error(f"Erro durante o scan de rede: {str(e)}")
             try:
@@ -117,8 +191,9 @@ class NetworkScanner:
         
         debug(f"Executando comando: {' '.join(cmd)}")
         
+        timeout = self.config_manager.get_timeout('discovery')
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        output, _ = process.communicate(timeout=self.config_manager.get_timeout('discovery'))
+        output, _ = process.communicate(timeout=timeout)
         
         if process.returncode != 0:
             raise ScannerError(f"Nmap retornou código de saída {process.returncode}")
@@ -189,7 +264,16 @@ class NetworkScanner:
         net = ipaddress.ip_network(network)
         
         # Usa ping para descobrir hosts ativos
-        for ip in net.hosts():
+        hosts_list = list(net.hosts())
+        
+        # Utiliza tqdm apenas se não estiver em modo silencioso
+        if not self.quiet_mode and hosts_list:
+            ping_iter = tqdm(hosts_list, desc="Executando pings", 
+                          bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
+        else:
+            ping_iter = hosts_list
+            
+        for ip in ping_iter:
             ip_str = str(ip)
             try:
                 subprocess.run(["ping", "-n", "1", "-w", "500", ip_str], 
@@ -199,6 +283,9 @@ class NetworkScanner:
         
         # Usa ARP para obter informações de MAC
         try:
+            if not self.quiet_mode:
+                print("Analisando respostas ARP...")
+                
             arp_output = subprocess.run(["arp", "-a"], stdout=subprocess.PIPE, 
                                        text=True, check=False).stdout
             
@@ -233,6 +320,9 @@ class NetworkScanner:
         hosts = {}
         try:
             # Usa uma versão simplificada do comando nmap
+            if not self.quiet_mode:
+                print("Executando scan de descoberta alternativo...")
+                
             output = subprocess.run(
                 [self.nmap_path, "-sn", "-n", network],
                 stdout=subprocess.PIPE, text=True, check=False
@@ -312,14 +402,88 @@ class NetworkScanner:
         
         try:
             timeout = self.config_manager.get_timeout('port_scan')
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            output, _ = process.communicate(timeout=timeout)
             
-            if process.returncode == 0:
-                # Analisa a saída do scan detalhado
-                self._parse_detailed_output(output, results)
+            # Se não estiver em modo silencioso, exibe uma barra de progresso
+            if not self.quiet_mode:
+                # Estima quantas portas serão escaneadas
+                port_count = 0
+                ports_str = profile['ports']
+                for port_range in ports_str.split(','):
+                    if '-' in port_range:
+                        start, end = map(int, port_range.split('-'))
+                        port_count += (end - start + 1)
+                    else:
+                        port_count += 1
+                
+                # Estima o tempo baseado no número de hosts e portas
+                est_time = min(timeout, max(10, len(target_ips) * port_count * 0.1))
+                
+                with tqdm(total=100, 
+                         desc=f"Escaneando portas em {len(target_ips)} host(s)", 
+                         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]") as pbar:
+                    
+                    # Inicia o scan em uma thread separada
+                    scan_result = [None]
+                    scan_error = [None]
+                    
+                    def run_detailed_scan():
+                        try:
+                            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                            output, _ = process.communicate(timeout=timeout)
+                            if process.returncode == 0:
+                                # Parse da saída
+                                self._parse_detailed_output(output, results)
+                                scan_result[0] = results
+                            else:
+                                debug(f"Scan detalhado retornou código de erro {process.returncode}")
+                                scan_error[0] = ScannerError(f"Nmap retornou código de saída {process.returncode}")
+                        except Exception as e:
+                            scan_error[0] = e
+                    
+                    scan_thread = threading.Thread(target=run_detailed_scan)
+                    scan_thread.start()
+                    
+                    # Atualiza a barra de progresso enquanto o scan está em execução
+                    steps = min(50, int(est_time))
+                    step_size = 100 / steps
+                    sleep_time = est_time / steps
+                    
+                    for i in range(steps):
+                        if not scan_thread.is_alive():
+                            remaining = 100 - pbar.n
+                            if remaining > 0:
+                                pbar.update(remaining)
+                            break
+                        
+                        # Atualiza progressivamente com base no tempo decorrido
+                        # A velocidade de atualização é maior no início e diminui no final
+                        progress = min(95, (i + 1) / steps * 100)
+                        update_size = progress - pbar.n
+                        if update_size > 0:
+                            pbar.update(update_size)
+                        
+                        time.sleep(sleep_time)
+                    
+                    # Aguarda a conclusão do thread
+                    scan_thread.join()
+                    
+                    # Completa a barra
+                    if pbar.n < 100:
+                        pbar.update(100 - pbar.n)
+                    
+                    # Verifica se houve erro
+                    if scan_error[0]:
+                        raise scan_error[0]
             else:
-                debug(f"Scan detalhado retornou código de erro {process.returncode}")
+                # Modo silencioso, sem barra de progresso
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                output, _ = process.communicate(timeout=timeout)
+                
+                if process.returncode == 0:
+                    # Analisa a saída do scan detalhado
+                    self._parse_detailed_output(output, results)
+                else:
+                    debug(f"Scan detalhado retornou código de erro {process.returncode}")
                 
         except subprocess.TimeoutExpired:
             error(f"Scan detalhado expirou o tempo limite de {timeout}s")
