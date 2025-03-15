@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Unit test / coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Logs
+logs/*.log
+logs/*.json.log
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment settings
+.env
+
+# Report files (podem ser grandes e desnecessários no Git)
+esk_nmap_report_*.txt
+
+# Arquivos específicos do Windows
+Thumbs.db
+desktop.ini
+
+# Arquivos de compilação
+*.spec
+*.exe

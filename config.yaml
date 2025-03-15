@@ -1,0 +1,50 @@
+# Configuração padrão do ESK_NMAP
+scan_profiles:
+  basic:
+    name: Scan Básico
+    description: Scan rápido para visão geral da rede
+    options: ["-T4", "-sn", "-n"]
+    ports: "21-23,25,53,80,443,3306,3389"
+    timing: 4
+  
+  stealth:
+    name: Scan Silencioso
+    description: Scan mais discreto usando SYN stealth
+    options: ["-sS", "-T2", "-n"]
+    ports: "21-23,25,53,80,443,3306,3389"
+    timing: 2
+  
+  version:
+    name: Scan com Detecção de Versão
+    description: Scan com identificação de serviços
+    options: ["-sV", "-T4", "-n"]
+    ports: "21-23,25,53,80,443,3306,3389,8080"
+    timing: 4
+  
+  complete:
+    name: Scan Completo
+    description: Scan detalhado com scripts NSE
+    options: ["-sV", "-sC", "-O", "-T4", "-n"]
+    ports: "1-1024,3306,3389,5432,8080,8443"
+    timing: 4
+
+  quick:
+    name: Scan Rápido
+    description: Scan rápido com opções mínimas
+    options: ["-T5", "-F", "-n"]
+    ports: "80,443"
+    timing: 5
+
+timeouts:
+  discovery: 180
+  port_scan: 300
+  version_scan: 120
+
+retry:
+  max_attempts: 3
+  delay_between_attempts: 5
+
+reporting:
+  format: text
+  include_closed_ports: false
+  group_by_port: true
