@@ -35,6 +35,9 @@
 - [ ] Configuração de número máximo de threads
 - [ ] Mecanismo de throttling para não sobrecarregar a rede
 - [ ] Sistema de fila para grandes redes
+- [ ] Adicionar suporte completo a IPv6
+- [ ] Testes de descoberta e scan em redes IPv6
+- [ ] Validação de endereços IPv6
 
 ## 5. Interface de Usuário [🟢]
 - [x] Adicionar barra de progresso
@@ -115,3 +118,18 @@
 - Seguir PEP 8 e boas práticas Python
 - Manter cobertura de testes acima de 70%
 - Documentar todas as alterações no CHANGELOG.md
+
+## Future Improvements
+
+- Implement IPv6 support for network scanning
+- Add support for custom port ranges in scan profiles
+- Implement service fingerprinting for better version detection
+- Add support for OS detection
+- Implement scan resume capability for interrupted scans
+- Add support for exporting results in different formats
+
+## Status das Tarefas
+- [x] Corrigir problema de loop infinito no teste de IPv6
+- [x] Comentar teste de IPv6 e adicionar tarefa no TODO
+- [x] Recriar testes para o scanner
+- [x] Executar sistema para garantir funcionalidade

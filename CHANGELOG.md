@@ -8,17 +8,20 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 ## [1.6.0] - 2025-03-15
 
 ### Adicionado
+
 - Suporte a múltiplos formatos de saída (JSON, CSV, XML)
 - Nova classe ReportFormat para melhor tipagem dos formatos
 - Testes unitários para todos os formatos de relatório
 
 ### Melhorado
+
 - Cobertura de testes do ReportGenerator para 99%
 - Estrutura de dados HostInfo para suportar mais informações
 - Documentação dos formatos de relatório
 - Interface de linha de comando com suporte a novos formatos
 
 ### Corrigido
+
 - Encoding de caracteres especiais em todos os formatos
 - Formatação de dados vazios nos relatórios
 - Validação de campos opcionais

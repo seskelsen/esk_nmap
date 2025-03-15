@@ -83,85 +83,66 @@ class NetworkScanner:
             
         Returns:
             Dict[str, HostInfo]: Dicionário de hosts encontrados
+            
+        Raises:
+            ScannerError: Se ocorrer erro tanto no scan principal quanto no fallback
         """
         debug(f"Iniciando scan de rede em {network}")
-        try:
-            # Exibe barra de progresso para a descoberta
-            if not self.quiet_mode:
-                # Calcula o tamanho da rede para estimar o tempo
-                try:
-                    net_size = sum(1 for _ in ipaddress.ip_network(network).hosts())
-                except ValueError:
-                    # Se for um único IP, considera tamanho 1
-                    net_size = 1
-                
-                # Estima o tempo baseado no tamanho da rede
-                est_time = min(max(5, int(net_size * 0.12)), 120)  # Entre 5s e 120s
-                
-                with tqdm(total=100, 
-                         desc=f"Descobrindo hosts em {network}", 
-                         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]") as pbar:
-                    
-                    # Inicia o scan em uma thread separada para poder atualizar a barra
-                    scan_result = [None]  # Para armazenar o resultado do scan
-                    scan_error = [None]   # Para armazenar possíveis erros
-                    
-                    def run_scan():
-                        try:
-                            scan_result[0] = self._discovery_scan(network)
-                        except Exception as e:
-                            scan_error[0] = e
-                    
-                    scan_thread = threading.Thread(target=run_scan)
-                    scan_thread.start()
-                    
-                    # Atualiza a barra de progresso enquanto o scan está em execução
-                    steps = min(50, est_time)  # Número de atualizações
-                    step_size = 100 / steps     # Tamanho de cada atualização
-                    sleep_time = est_time / steps  # Tempo entre atualizações
-                    
-                    for i in range(steps):
-                        if not scan_thread.is_alive():
-                            # O scan terminou antes do tempo estimado
-                            remaining = 100 - pbar.n
-                            if remaining > 0:
-                                pbar.update(remaining)
-                            break
-                        
-                        # Atualiza progressivamente
-                        progress = min(95, step_size * (i + 1))  # Nunca chega a 100% até terminar
-                        update_size = progress - pbar.n
-                        if update_size > 0:
-                            pbar.update(update_size)
-                        
-                        time.sleep(sleep_time)
-                    
-                    # Aguarda a conclusão do thread
-                    scan_thread.join()
-                    
-                    # Completa a barra se necessário
-                    if pbar.n < 100:
-                        pbar.update(100 - pbar.n)
-                    
-                    # Verifica se houve erro no scan
-                    if scan_error[0]:
-                        error(f"Erro durante o scan de rede: {str(scan_error[0])}")
-                        debug("Tentando método alternativo de descoberta")
-                        return self._fallback_discovery(network)
-                    
-                    return scan_result[0]
-            else:
-                # Modo silencioso, sem barra de progresso
-                return self._discovery_scan(network)
-        except Exception as e:
-            error(f"Erro durante o scan de rede: {str(e)}")
+        
+        if self.quiet_mode:
             try:
-                # Tenta método alternativo em caso de falha
+                return self._discovery_scan(network)
+            except Exception as e:
+                error(f"Erro durante o scan de rede: {str(e)}")
                 debug("Tentando método alternativo de descoberta")
-                return self._fallback_discovery(network)
-            except Exception as e2:
-                error(f"Método alternativo também falhou: {str(e2)}")
-                raise ScannerError("Both discovery methods failed")
+                try:
+                    return self._fallback_discovery(network)
+                except Exception as e2:
+                    raise ScannerError("Both discovery methods failed") from e2
+        
+        # Se não estiver em modo silencioso, usa barra de progresso
+        with tqdm(total=100, desc=f"Descobrindo hosts em {network}") as pbar:
+            try:
+                scan_result = None
+                scan_error = None
+                
+                def run_scan():
+                    nonlocal scan_result, scan_error
+                    try:
+                        scan_result = self._discovery_scan(network)
+                    except Exception as e:
+                        scan_error = e
+                
+                scan_thread = threading.Thread(target=run_scan)
+                scan_thread.start()
+                
+                progress = 0
+                while scan_thread.is_alive() and progress < 95:
+                    time.sleep(0.1)
+                    progress += 1
+                    pbar.update(1)
+                
+                scan_thread.join()
+                pbar.update(100 - progress)
+                
+                if scan_error:
+                    error(f"Erro durante o scan de rede: {str(scan_error)}")
+                    debug("Tentando método alternativo de descoberta")
+                    try:
+                        return self._fallback_discovery(network)
+                    except Exception as e:
+                        raise ScannerError("Both discovery methods failed") from e
+                
+                return scan_result
+            except Exception as e:
+                if isinstance(e, ScannerError):
+                    raise
+                error(f"Erro durante o scan de rede: {str(e)}")
+                debug("Tentando método alternativo de descoberta")
+                try:
+                    return self._fallback_discovery(network)
+                except Exception as e2:
+                    raise ScannerError("Both discovery methods failed") from e2
     
     def _discovery_scan(self, network: str) -> Dict[str, HostInfo]:
         """
@@ -202,40 +183,89 @@ class NetworkScanner:
         return self._parse_discovery_output(output)
     
     def _parse_discovery_output(self, output: str) -> Dict[str, HostInfo]:
-        """
-        Analisa a saída do scan de descoberta do Nmap.
-        
-        Args:
-            output (str): Saída do comando Nmap
-            
-        Returns:
-            Dict[str, HostInfo]: Informações dos hosts encontrados
-        """
+        """Analisa a saída do scan de descoberta do Nmap."""
         hosts = {}
         current_ip = None
         current_host = None
         
-        # Expressões regulares para extrair informações
-        ip_regex = re.compile(r"Nmap scan report for (?:([^\s]+) )?(?:\()?(\d+\.\d+\.\d+\.\d+)(?:\))?")
-        mac_regex = re.compile(r"MAC Address: ([0-9A-F:]+) \(([^)]+)\)")
-        
         for line in output.splitlines():
-            ip_match = ip_regex.search(line)
-            if ip_match:
-                hostname = ip_match.group(1) or ""
-                ip = ip_match.group(2)
+            line = line.strip()
+            
+            # Procura por IP e hostname
+            if "Nmap scan report for" in line:
+                parts = line.replace("Nmap scan report for", "").strip().split()
+                
+                # Extrai IP e hostname
+                if "(" in line and ")" in line:
+                    # Formato: hostname (IP)
+                    hostname = " ".join(parts[:-1])
+                    ip = parts[-1].strip("()")
+                else:
+                    # Formato: IP ou hostname
+                    ip = parts[0]
+                    hostname = " ".join(parts[1:]) if len(parts) > 1 else ""
+                
                 current_ip = ip
                 current_host = HostInfo(ip=ip, hostname=hostname)
                 hosts[current_ip] = current_host
                 continue
             
-            mac_match = mac_regex.search(line)
-            if mac_match and current_host:
-                current_host.mac = mac_match.group(1)
-                current_host.vendor = mac_match.group(2)
+            # Procura por MAC e vendor
+            if "MAC Address:" in line:
+                parts = line.replace("MAC Address:", "").strip().split("(", 1)
+                if len(parts) >= 1:
+                    mac = parts[0].strip()
+                    vendor = parts[1].strip(")").strip() if len(parts) > 1 else ""
+                    if current_host:
+                        current_host.mac = mac
+                        current_host.vendor = vendor
         
         return hosts
-    
+
+    def _parse_detailed_output(self, output: str, results: Dict[str, HostInfo]) -> None:
+        """Analisa a saída detalhada do scan do Nmap."""
+        current_ip = None
+        
+        for line in output.splitlines():
+            line = line.strip()
+            
+            if "Nmap scan report for" in line:
+                parts = line.replace("Nmap scan report for", "").strip().split()
+                
+                if "(" in line and ")" in line:
+                    hostname = " ".join(parts[:-1])
+                    ip = parts[-1].strip("()")
+                else:
+                    ip = parts[0]
+                    hostname = " ".join(parts[1:]) if len(parts) > 1 else ""
+                
+                current_ip = ip
+                if current_ip not in results:
+                    results[current_ip] = HostInfo(ip=current_ip, hostname=hostname)
+                elif hostname and not results[current_ip].hostname:
+                    results[current_ip].hostname = hostname
+                continue
+            
+            if current_ip and "/tcp" in line and "open" in line:
+                parts = line.split(None, 3)  # Split by whitespace into max 4 parts
+                if len(parts) >= 3:
+                    port = parts[0]
+                    state = parts[1]
+                    service = parts[2]
+                    version = parts[3].strip() if len(parts) > 3 else ""
+                    
+                    if current_ip in results:
+                        if port not in results[current_ip].ports:
+                            results[current_ip].ports.append(port)
+                        
+                        # Format service string
+                        service_str = service
+                        if version:
+                            service_str = f"{service} ({version})"
+                        
+                        if service_str not in results[current_ip].services:
+                            results[current_ip].services.append(service_str)
+
     def _fallback_discovery(self, network: str) -> Dict[str, HostInfo]:
         """
         Método alternativo de descoberta de hosts quando o Nmap falha.
@@ -252,62 +282,42 @@ class NetworkScanner:
             return self._unix_discovery(network)
     
     def _windows_discovery(self, network: str) -> Dict[str, HostInfo]:
-        """
-        Descoberta de hosts em sistemas Windows usando ping e arp.
-        
-        Args:
-            network (str): Rede a ser escaneada
-            
-        Returns:
-            Dict[str, HostInfo]: Hosts descobertos
-        """
+        """Executa descoberta de hosts no Windows usando ping e ARP."""
         hosts = {}
-        net = ipaddress.ip_network(network)
+        network_obj = ipaddress.ip_network(network)
+
+        debug(f"Descobrindo hosts na rede {network}")
         
-        # Usa ping para descobrir hosts ativos
-        hosts_list = list(net.hosts())
+        # Single ping sweep first
+        subprocess.run(['ping', '-n', '1', '-w', '500', str(next(network_obj.hosts()))],
+                     stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL)
         
-        # Utiliza tqdm apenas se não estiver em modo silencioso
-        if not self.quiet_mode and hosts_list:
-            ping_iter = tqdm(hosts_list, desc="Executando pings", 
-                          bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
-        else:
-            ping_iter = hosts_list
-            
-        for ip in ping_iter:
-            ip_str = str(ip)
-            try:
-                subprocess.run(["ping", "-n", "1", "-w", "500", ip_str], 
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-            except Exception:
-                pass
+        # Obtém a tabela ARP
+        debug("Analisando respostas ARP...")
+        arp_output = subprocess.run(['arp', '-a'], capture_output=True, text=True).stdout
         
-        # Usa ARP para obter informações de MAC
-        try:
-            if not self.quiet_mode:
-                print("Analisando respostas ARP...")
+        # Processa a saída do ARP
+        current_ip = None
+        for line in arp_output.splitlines():
+            line = line.strip()
+            if line.startswith('Interface:'):
+                current_ip = line.split()[1]
+                continue
                 
-            arp_output = subprocess.run(["arp", "-a"], stdout=subprocess.PIPE, 
-                                       text=True, check=False).stdout
-            
-            # Analisa a saída do ARP
-            for line in arp_output.splitlines():
-                parts = line.split()
-                if len(parts) >= 3:
-                    # Formato Windows: Interface: 192.168.1.1 --- 0x3
-                    #                  IP            MAC           Type
-                    if parts[0] == "Interface:":
-                        continue
-                    
+            if line and not line.startswith('Internet') and 'dynamic' in line.lower():
+                parts = [p for p in line.split() if p]
+                if len(parts) >= 2:
                     ip = parts[0]
-                    if ip in net:
-                        mac = parts[1].replace("-", ":")
-                        hosts[ip] = HostInfo(ip=ip, mac=mac)
-        except Exception as e:
-            debug(f"Erro ao processar saída do ARP: {str(e)}")
+                    try:
+                        if ipaddress.ip_address(ip) in network_obj:
+                            mac = parts[1].replace('-', ':')
+                            hosts[ip] = HostInfo(ip=ip, mac=mac)
+                    except ValueError:
+                        continue  # Ignora IPs inválidos
         
         return hosts
-    
+
     def _unix_discovery(self, network: str) -> Dict[str, HostInfo]:
         """
         Descoberta de hosts em sistemas Unix usando comandos alternativos.
@@ -355,184 +365,58 @@ class NetworkScanner:
         return hosts
     
     def detailed_scan(self, target_ips: Set[str]) -> Dict[str, HostInfo]:
-        """
-        Realiza um scan detalhado dos hosts especificados.
-        
-        Args:
-            target_ips (Set[str]): Conjunto de IPs a serem escaneados em detalhe
-            
-        Returns:
-            Dict[str, HostInfo]: Informações detalhadas dos hosts
-        """
-        if not target_ips:
-            return {}
-        
+        """Executa um scan detalhado nos hosts especificados."""
         debug(f"Iniciando scan detalhado de {len(target_ips)} hosts")
-        results = {}
         
-        # Inicializa os resultados com informações básicas
-        for ip in target_ips:
-            results[ip] = HostInfo(ip=ip)
+        # Obtém informações iniciais dos hosts
+        initial_hosts = self._discovery_scan(", ".join(target_ips))
+        results = initial_hosts.copy()  # Preserva as informações iniciais
         
-        # Obtém o perfil de scan atual
+        # Prepara as portas comuns para scan
         profile = self.config_manager.get_scan_profile(self._scan_profile)
-            
-        # Comando Nmap para scan detalhado
-        target_list = ",".join(target_ips)
-        cmd = [self.nmap_path]
+        ports = profile.get('ports', '')
+        timeout = self.config_manager.get_timeout('port_scan')
         
-        # Adiciona a lista de portas do perfil
-        cmd.extend(["-p", profile['ports']])
+        # Garante que portas comuns importantes estejam incluídas
+        common_ports = ["22", "23", "80", "443", "3389"]
+        if not ports:
+            ports = ",".join(common_ports)
+        else:
+            # Adiciona portas que não estão no perfil
+            current_ports = set(ports.split(","))
+            missing_ports = [p for p in common_ports if p not in current_ports]
+            if missing_ports:
+                ports = f"{ports},{','.join(missing_ports)}"
         
-        # Adiciona as opções do perfil (exceto as que são apenas para descoberta)
-        for option in profile['options']:
-            if option != "-sn" and not option.startswith("-T"):
-                cmd.append(option)
-        
-        # Adiciona a detecção de versão se não estiver nas opções
-        if "-sV" not in cmd:
-            cmd.append("-sV")
-        
-        # Adiciona o timing baseado no perfil
-        cmd.extend([f"-T{profile['timing']}"])
-        
-        # Adiciona o alvo
-        cmd.append(target_list)
-        
-        debug(f"Executando comando: {' '.join(cmd)}")
-        
-        try:
-            timeout = self.config_manager.get_timeout('port_scan')
-            
-            # Se não estiver em modo silencioso, exibe uma barra de progresso
-            if not self.quiet_mode:
-                # Estima quantas portas serão escaneadas
-                port_count = 0
-                ports_str = profile['ports']
-                for port_range in ports_str.split(','):
-                    if '-' in port_range:
-                        start, end = map(int, port_range.split('-'))
-                        port_count += (end - start + 1)
-                    else:
-                        port_count += 1
+        with tqdm(total=100, desc=f"Escaneando portas em {len(target_ips)} host(s)") as pbar:
+            try:
+                cmd = [
+                    self.nmap_path,
+                    '-p', ports,
+                    '-sV',  # Detecção de versão
+                    f'-T{profile["timing"]}',
+                ] + list(target_ips)
                 
-                # Estima o tempo baseado no número de hosts e portas
-                est_time = min(timeout, max(10, len(target_ips) * port_count * 0.1))
+                debug(f"Executando comando: {' '.join(cmd)}")
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
                 
-                with tqdm(total=100, 
-                         desc=f"Escaneando portas em {len(target_ips)} host(s)", 
-                         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]") as pbar:
-                    
-                    # Inicia o scan em uma thread separada
-                    scan_result = [None]
-                    scan_error = [None]
-                    
-                    def run_detailed_scan():
-                        try:
-                            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                            output, _ = process.communicate(timeout=timeout)
-                            if process.returncode == 0:
-                                # Parse da saída
-                                self._parse_detailed_output(output, results)
-                                scan_result[0] = results
-                            else:
-                                debug(f"Scan detalhado retornou código de erro {process.returncode}")
-                                scan_error[0] = ScannerError(f"Nmap retornou código de saída {process.returncode}")
-                        except Exception as e:
-                            scan_error[0] = e
-                    
-                    scan_thread = threading.Thread(target=run_detailed_scan)
-                    scan_thread.start()
-                    
-                    # Atualiza a barra de progresso enquanto o scan está em execução
-                    steps = min(50, int(est_time))
-                    step_size = 100 / steps
-                    sleep_time = est_time / steps
-                    
-                    for i in range(steps):
-                        if not scan_thread.is_alive():
-                            remaining = 100 - pbar.n
-                            if remaining > 0:
-                                pbar.update(remaining)
-                            break
-                        
-                        # Atualiza progressivamente com base no tempo decorrido
-                        # A velocidade de atualização é maior no início e diminui no final
-                        progress = min(95, (i + 1) / steps * 100)
-                        update_size = progress - pbar.n
-                        if update_size > 0:
-                            pbar.update(update_size)
-                        
-                        time.sleep(sleep_time)
-                    
-                    # Aguarda a conclusão do thread
-                    scan_thread.join()
-                    
-                    # Completa a barra
-                    if pbar.n < 100:
-                        pbar.update(100 - pbar.n)
-                    
-                    # Verifica se houve erro
-                    if scan_error[0]:
-                        raise scan_error[0]
-            else:
-                # Modo silencioso, sem barra de progresso
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                output, _ = process.communicate(timeout=timeout)
+                output, error = process.communicate(timeout=timeout)
+                if process.returncode != 0:
+                    raise ScannerError(f"Erro no scan detalhado: {error}")
                 
-                if process.returncode == 0:
-                    # Analisa a saída do scan detalhado
-                    self._parse_detailed_output(output, results)
-                else:
-                    debug(f"Scan detalhado retornou código de erro {process.returncode}")
+                self._parse_detailed_output(output, results)
+                pbar.update(100)
                 
-        except subprocess.TimeoutExpired:
-            error(f"Scan detalhado expirou o tempo limite de {timeout}s")
-            raise
-        except Exception as e:
-            error(f"Erro durante scan detalhado: {str(e)}")
-            raise
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise
+            except Exception as e:
+                error(f"Erro durante o scan detalhado: {str(e)}")
+                raise
         
         return results
-    
-    def _parse_detailed_output(self, output: str, results: Dict[str, HostInfo]) -> None:
-        """
-        Analisa a saída do scan detalhado do Nmap.
-        
-        Args:
-            output (str): Saída do comando Nmap
-            results (Dict[str, HostInfo]): Dicionário para armazenar os resultados
-        """
-        current_ip = None
-        
-        ip_regex = re.compile(r"Nmap scan report for (?:([^\s]+) )?(?:\()?(\d+\.\d+\.\d+\.\d+)(?:\))?")
-        port_regex = re.compile(r"(\d+)/(\w+)\s+(\w+)\s+(\w+)\s*(.*)")
-        
-        for line in output.splitlines():
-            ip_match = ip_regex.search(line)
-            if ip_match:
-                current_ip = ip_match.group(2)
-                # Se o hostname estiver presente, atualiza
-                hostname = ip_match.group(1)
-                if hostname and current_ip in results:
-                    results[current_ip].hostname = hostname
-                continue
-            
-            # Tenta extrair informações de porta e serviço
-            port_match = port_regex.search(line)
-            if port_match and current_ip and current_ip in results:
-                port_num = port_match.group(1)
-                port_proto = port_match.group(2)
-                port_status = port_match.group(3)
-                service = port_match.group(4)
-                version = port_match.group(5).strip()
-                
-                if port_status == "open":
-                    port_str = f"{port_num}/{port_proto}"
-                    results[current_ip].ports.append(port_str)
-                    
-                    service_str = service
-                    if version:
-                        service_str += f" ({version})"
-                    
-                    results[current_ip].services.append(service_str)
