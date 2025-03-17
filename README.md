@@ -1,248 +1,108 @@
-# ESK_NMAP
+# ESK_NMAP - Network Scanner Tool
 
-Copyright (c) 2025 Eskel Cybersecurity. Todos os direitos reservados.
+![Python](https://img.shields.io/badge/Python-3.12%2B-blue.svg)
+![License](https://img.shields.io/badge/License-GPL%20v2-blue.svg)
+![Coverage](https://img.shields.io/badge/Coverage-70%25-yellow.svg)
+![Development Status](https://img.shields.io/badge/Status-Beta-yellow.svg)
 
-Um scanner de rede avançado baseado no Nmap com interface amigável e relatórios detalhados.
+## 🚀 Sobre o Projeto
 
-## Características
+ESK_NMAP é uma ferramenta de scanner de rede desenvolvida pela Eskel Cybersecurity. Construída sobre o Nmap, oferece uma interface amigável e recursos adicionais para facilitar a descoberta e análise de hosts em uma rede.
 
-- Interface de linha de comando intuitiva
-- Descoberta automática de hosts na rede
-- Múltiplos perfis de scan:
-  - Básico (rápido)
-  - Silencioso (stealth)
-  - Detecção de Versão
-  - Completo
-  - Personalizado
-- Detecção de firewalls
-- Relatórios em múltiplos formatos:
-  - Texto (padrão)
-  - JSON (para integração com sistemas)
-  - CSV (para análise em planilhas)
-  - XML (para processamento estruturado)
-- Suporte completo para Windows e Linux
-- Cobertura de testes unitários > 70%
-- Sistema flexível de configuração via YAML
+### ✨ Principais Recursos
 
-## Pré-requisitos
+- 🔍 Descoberta automática de hosts
+- 📊 Múltiplos formatos de relatório (TEXT, JSON, CSV, XML)
+- 🎯 Perfis de scan predefinidos
+- 📈 Barra de progresso em tempo real
+- 📝 Sistema de logging estruturado
+- 🔄 Histórico de scans com comparação
+- ⚙️ Configuração flexível via YAML
 
-- Python 3.7+
-- Nmap 7.0+
-- Biblioteca prettytable
-- Biblioteca pytest (para desenvolvimento)
+### 🛠️ Estado Atual
 
-### Windows
+O projeto está em fase beta, com foco atual em:
+- Melhorias de estabilidade
+- Correção de bugs
+- Otimização de performance
+- Aumento da cobertura de testes
 
+## 📋 Pré-requisitos
+
+- Python 3.12 ou superior
+- Nmap instalado no sistema
+- Sistema operacional: Windows ou Linux
+- Privilégios de administrador (recomendado)
+
+## 🔧 Instalação
+
+1. Clone o repositório:
 ```bash
-# Instalar o Nmap
-# Baixe e instale de https://nmap.org/download.html#windows
-
-# Instalar dependências Python
-pip install -r requirements.txt
+git clone https://github.com/eskelcyber/esk_nmap.git
 ```
 
-### Linux
-
-```bash
-# Instalar o Nmap
-sudo apt install nmap  # Debian/Ubuntu
-sudo dnf install nmap  # Fedora
-sudo pacman -S nmap   # Arch Linux
-
-# Instalar dependências Python
-pip install -r requirements.txt
-```
-
-## Instalação
-
-1. Clone o repositório ou baixe o código fonte
 2. Instale as dependências:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Use diretamente com Python ou gere o executável:
-
-   ```bash
-   # Windows
-   pyinstaller --onefile esk_nmap.py
-
-   # Linux
-   pyinstaller --onefile esk_nmap.py
-   ```
-
-## Uso
-
 ```bash
-# Usando código fonte
-python esk_nmap.py <rede> [opções]
-
-# Usando executável
-./esk_nmap <rede> [opções]
-
-# Exemplo básico
-python esk_nmap.py 192.168.1.0/24
-
-# Exemplo com opções
-python esk_nmap.py 192.168.1.0/24 --profile stealth --output relatorio_scan.txt
+pip install -r requirements.txt
 ```
 
-### Opções da Linha de Comando
+## 🎮 Uso Básico
 
-```
-  --config, -c  : Arquivo de configuração personalizado
-  --profile, -p : Perfil de scan (basic, stealth, version, complete, etc.)
-  --output, -o  : Arquivo de saída para o relatório
-  --verbose, -v : Aumentar nível de verbosidade
-  --quiet, -q   : Modo silencioso
-```
-
-### Perfis de Scan
-
-1. **Scan Básico**
-   - Mais rápido
-   - Menos detalhado
-   - Ideal para visão geral rápida
-
-2. **Scan Silencioso**
-   - Utiliza técnicas SYN stealth
-   - Menor chance de detecção
-   - Mais lento que o básico
-
-3. **Scan com Detecção de Versão**
-   - Identifica versões dos serviços
-   - Mais informações sobre portas abertas
-   - Velocidade moderada
-
-4. **Scan Completo**
-   - Todas as portas
-   - Scripts NSE básicos
-   - Detecção de SO
-   - Mais lento, mais detalhado
-
-5. **Scan Personalizado**
-   - Escolha suas opções
-   - Configure timing e agressividade
-   - Total controle sobre o scan
-
-## Sistema de Configuração
-
-O ESK_NMAP utiliza um sistema flexível de configuração baseado em YAML, permitindo personalizar perfis de scan, timeouts, comportamentos de retry e formatos de relatório.
-
-### Arquivo de Configuração
-
-O arquivo padrão é `config.yaml` na raiz do projeto. Você pode especificar um arquivo de configuração alternativo com a opção `--config`.
-
-### Estrutura do Arquivo de Configuração
-
-```yaml
-# Perfis de scan disponíveis
-scan_profiles:
-  basic:
-    name: Scan Básico
-    description: Scan rápido para visão geral da rede
-    options: ["-T4", "-sn", "-n"]
-    ports: "21-23,25,53,80,443,3306,3389"
-    timing: 4
-  
-  stealth:
-    name: Scan Silencioso
-    description: Scan mais discreto usando SYN stealth
-    options: ["-sS", "-T2", "-n"]
-    ports: "21-23,25,53,80,443,3306,3389"
-    timing: 2
-  
-  # ... outros perfis ...
-
-# Configurações de timeout (em segundos)
-timeouts:
-  discovery: 180
-  port_scan: 300
-  version_scan: 120
-
-# Configurações de retry
-retry:
-  max_attempts: 3
-  delay_between_attempts: 5
-
-# Configurações de relatório
-reporting:
-  format: text
-  include_closed_ports: false
-  group_by_port: true
-```
-
-### Criando Perfis Personalizados
-
-Para criar um novo perfil de scan, adicione uma nova entrada na seção `scan_profiles`:
-
-```yaml
-scan_profiles:
-  meu_perfil:
-    name: Meu Perfil Personalizado
-    description: Descrição do meu perfil
-    options: ["-sV", "-T3", "--script=vuln"]
-    ports: "21-25,80,443,8080-8090"
-    timing: 3
-```
-
-## Desenvolvimento
-
-### Estrutura do Projeto
-
-```
-esk_nmap/
-├── src/
-│   ├── core/        # Lógica principal
-│   ├── reports/     # Geração de relatórios
-│   ├── ui/          # Interface com usuário
-│   └── utils/       # Utilitários
-├── tests/           # Testes unitários
-├── config.yaml      # Configuração padrão
-├── requirements.txt # Dependências
-└── esk_nmap.py     # Ponto de entrada
-```
-
-### Testes
-
+1. Scan básico de uma rede:
 ```bash
-# Executar todos os testes
-pytest
-
-# Executar testes com cobertura
-pytest --cov=src
-
-# Ver relatório HTML de cobertura
-pytest --cov=src --cov-report=html
+python esk_nmap.py scan 192.168.1.0/24
 ```
 
-### Compilação
-
-#### Windows
-
+2. Scan com perfil específico:
 ```bash
-pyinstaller --onefile --icon=resources/icon.ico esk_nmap.py
+python esk_nmap.py scan 192.168.1.0/24 --profile complete
 ```
 
-#### Linux
-
+3. Gerar relatório em formato específico:
 ```bash
-pyinstaller --onefile esk_nmap.py
+python esk_nmap.py scan 192.168.1.0/24 --output relatorio.json --format json
 ```
 
-## Contribuindo
+## 📊 Perfis de Scan Disponíveis
 
-1. Fork o projeto
-2. Crie sua branch de feature (`git checkout -b feature/AmazingFeature`)
+- basic: Scan rápido para visão geral
+- stealth: Scan discreto usando SYN stealth
+- version: Scan com detecção de versões
+- complete: Scan detalhado com scripts NSE
+- quick: Scan rápido de portas comuns
+
+## 📝 Formatos de Relatório
+
+- TEXT: Relatório em texto formatado
+- JSON: Formato estruturado para integração
+- CSV: Formato tabular para planilhas
+- XML: Formato estruturado com metadados
+
+## 🔄 Versionamento
+
+Usamos [SemVer](http://semver.org/) para versionamento.
+Consulte o [CHANGELOG.md](CHANGELOG.md) para ver o histórico de alterações.
+
+## 🎯 Roadmap
+
+Consulte o [TODO.md](TODO.md) para ver as próximas melhorias planejadas.
+
+## 🤝 Contribuição
+
+1. Faça um Fork do projeto
+2. Crie sua Feature Branch (`git checkout -b feature/AmazingFeature`)
 3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
+4. Push para a Branch (`git push origin feature/AmazingFeature`)
 5. Abra um Pull Request
 
-## Licença
+## 📜 Licença
 
-Copyright (c) 2025 Eskel Cybersecurity. Todos os direitos reservados.
+Este projeto está licenciado sob a GNU General Public License v2 - veja o arquivo [LICENSE](LICENSE) para detalhes.
 
-## Suporte
+## 📞 Contato
 
-Para suporte, envie um email para <suporte@eskelcyber.com>
+Sigmar Eskelsen - sigmar@eskelcyber.com
+
+## ⚠️ Aviso Legal
+
+Esta ferramenta deve ser usada apenas em redes e sistemas que você tem permissão para escanear. O uso indevido pode ser ilegal em sua jurisdição.

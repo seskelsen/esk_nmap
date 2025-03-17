@@ -44,7 +44,8 @@
 - [x] Menu interativo para seleção de perfis
 - [x] Múltiplos formatos de saída (JSON, CSV, XML)
 - [x] Modo silencioso para integração com outros sistemas
-- [ ] Interface web básica (opcional)
+- [ ] Interface web básica
+- [ ] Interface gráfica (GUI) desktop
 
 ## 6. Segurança [🟡]
 - [x] Verificação granular de permissões
@@ -81,30 +82,69 @@
 - [ ] Uso de recursos
 - [ ] Dashboards
 
-## Priorização
+## 11. Comparador de Resultados [🔴]
+- [ ] Armazenar histórico de scans
+- [ ] Comparar resultados entre diferentes execuções
+- [ ] Detectar hosts novos/removidos
+- [ ] Detectar portas abertas/fechadas entre scans
+- [ ] Gerar relatório de mudanças
+- [ ] Visualização gráfica de mudanças
+
+## 12. Escaneamento Agendado [🔴]
+- [ ] Implementar mecanismo de agendamento
+- [ ] Configuração de periodicidade (diária, semanal, mensal)
+- [ ] Execução automática em horários programados
+- [ ] Notificações por email após conclusão
+- [ ] Painel de controle para gerenciar jobs agendados
+
+## 13. Integração com Ferramentas de Segurança [🔴]
+- [ ] Exportação para Metasploit
+- [ ] Integração com OpenVAS
+- [ ] Integração com sistemas SIEM
+- [ ] Importação/exportação para outras ferramentas de scan
+- [ ] API REST para integração com sistemas externos
+
+## 14. Detecção Básica de Vulnerabilidades [🔴]
+- [ ] Verificação de versões conhecidamente vulneráveis
+- [ ] Integração com base CVE
+- [ ] Avaliação básica de risco
+- [ ] Sugestões de mitigação
+- [ ] Triagem de vulnerabilidades por criticidade
+
+## Priorização Revisada
 
 ### Alta Prioridade
 1. ~~Sistema de Logging~~ ✅
 2. ~~Tratamento de Erros~~ ✅
 3. ~~Sistema de Configuração~~ ✅
-4. ~~Interface de Usuário~~ ✅
+4. ~~Interface de Usuário (Básica)~~ ✅
 5. **Revisão dos Testes Unitários** 🟡
-   - [ ] Aumentar cobertura do ConfigManager (atual: 26%)
-   - [ ] Melhorar testes do Scanner (atual: 12%)
-   - [ ] Documentar todos os casos de teste
+   - [x] Alcançar cobertura de 80% no módulo CLI
+   - [x] Implementar testes robustos para NetworkScanner
+   - [ ] Aumentar cobertura do ConfigManager (atual: 65%)
+   - [ ] Melhorar testes do Scanner (atual: 14%)
+   - [ ] Melhorar testes do ReportGenerator (atual: 21%)
    - [ ] Implementar testes de integração
    - [ ] Adicionar testes para casos de erro
+6. **Paralelização de Scans** 🔴
+   - [ ] Implementar ThreadPoolExecutor para scans paralelos
+   - [ ] Melhorar performance em redes grandes
+7. **Comparador de Resultados** 🔴
+   - [ ] Implementar funcionalidade básica de comparação entre scans
 
 ### Média Prioridade
-4. Paralelização de Scans
-5. ~~Interface de Usuário~~ ✅
-6. Documentação
+8. **Documentação Completa** 🟡
+9. **Escaneamento Agendado** 🔴
+10. **Otimização de Performance** 🟡
+11. **Segurança Avançada** 🟡
+12. **Interface Web** 🔴
 
 ### Baixa Prioridade
-7. Sistema de Plugins
-8. Otimização de Performance
-9. Segurança
-10. Monitoramento
+13. **Detecção Básica de Vulnerabilidades** 🔴
+14. **Sistema de Plugins** 🔴
+15. **Integração com Ferramentas de Segurança** 🔴
+16. **Monitoramento Avançado** 🟡
+17. **Interface Gráfica Desktop** 🔴
 
 ## Dependências entre Tarefas
 - ~~Sistema de Logging deve ser implementado antes do Tratamento de Erros~~ ✅
@@ -112,12 +152,40 @@
 - Sistema de Configuração é pré-requisito para Paralelização
 - Documentação deve ser atualizada conforme as features são implementadas
 - Monitoramento depende do Sistema de Logging
+- Comparador de Resultados depende de um sistema de armazenamento de histórico
+- Escaneamento Agendado depende de Paralelização
+- Detecção de Vulnerabilidades depende de integração com base CVE
+- Interface Web depende de API REST
+
+## Plano de Implementação Imediata (Próximas 3 Sprints)
+
+### Sprint 1: Melhorar Base de Código (Em Progresso)
+- [x] Melhorar cobertura de testes do CLI para 80%
+- [x] Implementar mock tests para o Scanner
+- [ ] Aumentar cobertura do ConfigManager para >80%
+- [ ] Melhorar cobertura do Scanner para >50%
+- [ ] Melhorar cobertura do ReportGenerator para >50%
+- [ ] Atualizar documentação existente
+- [ ] Criar estrutura base para armazenamento de histórico de scans
+
+### Sprint 2: Paralelização e Performance
+- [ ] Implementar ThreadPoolExecutor para scans paralelos
+- [ ] Adicionar controle de concorrência e configuração de threads
+- [ ] Implementar mecanismo de throttling
+- [ ] Atualizar testes para cobrir execução paralela
+
+### Sprint 3: Comparador de Resultados
+- Desenvolver o sistema de armazenamento de histórico
+- Implementar algoritmos de comparação entre scans
+- Criar relatórios de diferenças
+- Adicionar visualização básica das mudanças
 
 ## Notas
 - Manter compatibilidade com versões anteriores
 - Seguir PEP 8 e boas práticas Python
 - Manter cobertura de testes acima de 70%
 - Documentar todas as alterações no CHANGELOG.md
+- Priorizar features que agreguem valor imediato para usuários existentes
 
 ## Future Improvements
 
@@ -133,3 +201,100 @@
 - [x] Comentar teste de IPv6 e adicionar tarefa no TODO
 - [x] Recriar testes para o scanner
 - [x] Executar sistema para garantir funcionalidade
+
+# ESK NMAP - TODO List
+
+## Bugs para Corrigir
+
+- [ ] Corrigir problemas na classe HostInfo:
+  - Conflito com parâmetro 'services' não válido
+  - Melhorar manipulação dos estados (up/down)
+  - Validar campos opcionais
+
+- [ ] Resolver problemas no ReportGenerator:
+  - Corrigir manipulação de StringIO
+  - Melhorar tratamento de caracteres especiais em nomes de arquivo
+  - Validar todos os formatos de relatório (TEXT, JSON, CSV, XML)
+
+- [ ] Resolver problemas com SQLite no HistoryManager:
+  - Garantir que conexões sejam fechadas corretamente
+  - Implementar context manager para conexões
+  - Melhorar tratamento de erros em operações de banco
+
+## Melhorias de Código
+
+- [ ] Remover testes unitários quebrados e reescrever com a implementação correta
+- [ ] Melhorar sistema de logging:
+  - Adicionar mais detalhes nos logs de erro
+  - Implementar rotação de logs
+  - Configurar níveis de log por ambiente
+
+- [ ] Refatorar ConfigManager:
+  - Melhorar tratamento de valores None
+  - Implementar validação de campos obrigatórios
+  - Adicionar suporte a recarregamento de configurações
+
+## Novas Funcionalidades
+
+- [ ] Implementar comparação avançada entre scans:
+  - Comparação de versões de serviços
+  - Detecção de mudanças em portas específicas
+  - Exportação de relatório de diferenças
+
+- [ ] Adicionar novos formatos de relatório:
+  - Formato HTML com estilos
+  - Exportação para PDF
+  - Relatórios com gráficos
+
+- [ ] Melhorar interface de linha de comando:
+  - Adicionar barra de progresso para todas as operações
+  - Melhorar feedback visual durante scans
+  - Implementar modo interativo com menu
+
+## Documentação
+
+- [ ] Atualizar README com novas funcionalidades
+- [ ] Documentar todos os formatos de relatório
+- [ ] Criar guia de contribuição
+- [ ] Melhorar documentação do código
+- [ ] Adicionar exemplos de uso
+
+## Testes
+
+- [ ] Aumentar cobertura de testes
+- [ ] Adicionar testes de integração
+- [ ] Implementar testes de performance
+- [ ] Criar fixtures reutilizáveis
+- [ ] Melhorar testes de edge cases
+
+## DevOps
+
+- [ ] Configurar CI/CD
+- [ ] Implementar versionamento semântico
+- [ ] Criar scripts de build
+- [ ] Configurar análise estática de código
+- [ ] Implementar mecanismo de atualização automática
+
+## Segurança
+
+- [ ] Implementar validação de entrada em todos os parâmetros
+- [ ] Adicionar tratamento de permissões mais robusto
+- [ ] Implementar rate limiting para scans
+- [ ] Melhorar sanitização de dados em relatórios
+- [ ] Adicionar opções de criptografia para histórico
+
+## Performance
+
+- [ ] Otimizar consultas ao banco de dados
+- [ ] Implementar cache para resultados frequentes
+- [ ] Melhorar performance de scans em redes grandes
+- [ ] Otimizar geração de relatórios
+- [ ] Implementar processamento paralelo onde possível
+
+## Próximos Passos Imediatos
+
+1. Corrigir bugs na classe HostInfo
+2. Resolver problemas com testes unitários
+3. Melhorar sistema de logging
+4. Atualizar documentação
+5. Implementar tratamento de erros mais robusto
