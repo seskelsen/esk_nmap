@@ -5,26 +5,18 @@
 ESK NMAP - Network Scanner Tool
 Copyright (C) 2025 Eskel Cybersecurity
 Author: Sigmar Eskelsen
-
-Este programa é um software livre; você pode redistribuí-lo e/ou
-modificá-lo sob os termos da Licença Pública Geral GNU como publicada
-pela Free Software Foundation; na versão 2 da Licença, ou
-(a seu critério) qualquer versão posterior.
-
-Este programa é distribuído na esperança de que possa ser útil,
-mas SEM NENHUMA GARANTIA; sem uma garantia implícita de ADEQUAÇÃO
-a qualquer MERCADO ou APLICAÇÃO EM PARTICULAR. Veja a
-Licença Pública Geral GNU para mais detalhes.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Union, TextIO
 import time
 import json
 import csv
+import re
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from ..core.scanner import HostInfo
 from enum import Enum, auto
+from io import StringIO
 
 class ReportFormat(Enum):
     """Formatos suportados para relatórios"""
@@ -34,6 +26,15 @@ class ReportFormat(Enum):
     XML = auto()
 
 class ReportGenerator:
+    @staticmethod
+    def create_filename(network: str, format: ReportFormat = ReportFormat.TEXT) -> str:
+        """Cria o nome do arquivo de relatório baseado na rede, timestamp e formato"""
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        # Sanitiza a rede para um nome de arquivo válido
+        network_formatted = re.sub(r'[^\w\-_]', '_', network)
+        extension = format.name.lower()
+        return f"esk_nmap_report_{network_formatted}_{timestamp}.{extension}"
+
     @staticmethod
     def create_filename(network: str, format: ReportFormat = ReportFormat.TEXT) -> str:
         """Cria o nome do arquivo de relatório baseado na rede, timestamp e formato"""
@@ -56,6 +57,27 @@ class ReportGenerator:
             ReportGenerator._generate_xml_report(filename, hosts, network)
 
     @staticmethod
+    def generate_text_report(hosts: Dict[str, HostInfo]) -> str:
+        """Generate text report and return as string"""
+        output_file = StringIO()
+        ReportGenerator._generate_text_report(output_file, hosts, "")
+        return output_file.getvalue()
+
+    @staticmethod
+    def generate_html_report(hosts: Dict[str, HostInfo]) -> str:
+        """Generate HTML report and return as string"""
+        output_file = StringIO()
+        ReportGenerator._generate_html_report(output_file, hosts, "")
+        return output_file.getvalue()
+
+    @staticmethod
+    def generate_json_report(hosts: Dict[str, HostInfo]) -> dict:
+        """Generate JSON report and return as dict"""
+        output_file = StringIO()
+        ReportGenerator._generate_json_report(output_file, hosts, "")
+        return json.loads(output_file.getvalue())
+
+    @staticmethod
     def _generate_text_report(filename: str, hosts: Dict[str, HostInfo], network: str) -> None:
         """Gera o relatório em formato texto"""
         with open(filename, "w", encoding="utf-8") as f:
@@ -69,8 +91,10 @@ class ReportGenerator:
 
             # Resumo inicial
             f.write("RESUMO:\n")
-            f.write(f"Total de hosts ativos: {len(hosts)}\n")
-            f.write(f"Hosts com portas abertas: {len([h for h in hosts.values() if h.ports])}\n\n")
+            total_hosts = len(hosts)
+            hosts_with_ports = len([h for h in hosts.values() if any(p.get('state', '').lower() == 'open' for p in h.ports)])
+            f.write(f"Total de hosts ativos: {total_hosts}\n")
+            f.write(f"Hosts com portas abertas: {hosts_with_ports}\n\n")
 
             # Tabela de hosts descobertos
             f.write("HOSTS DESCOBERTOS:\n")
@@ -100,19 +124,27 @@ class ReportGenerator:
                 if info.hostname != "N/A":
                     f.write(f"Hostname: {info.hostname}\n")
                 
-                if info.ports:
+                open_ports = [p for p in info.ports if p.get('state', '').lower() == 'open']
+                if open_ports:
                     f.write("\nPortas abertas:\n")
                     f.write("+" + "-" * 15 + "+" + "-" * 50 + "+\n")
                     f.write("| {:<13} | {:<48} |\n".format("PORTA", "SERVIÇO"))
                     f.write("+" + "-" * 15 + "+" + "-" * 50 + "+\n")
                     
-                    for port, service in zip(info.ports, info.services):
-                        f.write("| {:<13} | {:<48} |\n".format(port, service[:48]))
+                    for port_info in open_ports:
+                        port_str = f"{port_info['port']}/{port_info['protocol']}"
+                        service = port_info.get('service', 'unknown')
+                        version = port_info.get('version', '')
+                        service_str = f"{service} {version}".strip()
+                        
+                        f.write("| {:<13} | {:<48} |\n".format(port_str, service_str[:48]))
                         f.write("+" + "-" * 15 + "+" + "-" * 50 + "+\n")
                 else:
                     f.write("\nNenhuma porta aberta encontrada\n")
                 
                 f.write("\n" + "=" * 60 + "\n")
+            
+            f.write("\nINFO: Scan concluído com sucesso!")
 
     @staticmethod
     def _generate_json_report(filename: str, hosts: Dict[str, HostInfo], network: str) -> None:
@@ -122,7 +154,7 @@ class ReportGenerator:
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "network": network,
                 "total_hosts": len(hosts),
-                "hosts_with_open_ports": len([h for h in hosts.values() if h.ports])
+                "hosts_with_open_ports": len([h for h in hosts.values() if any(p.get('state', '').lower() == 'open' for p in h.ports)])
             },
             "hosts": {}
         }
@@ -134,9 +166,15 @@ class ReportGenerator:
                 "mac": info.mac if info.mac != "N/A" else None,
                 "vendor": info.vendor if info.vendor != "N/A" else None,
                 "ports": [
-                    {"port": port, "service": service}
-                    for port, service in zip(info.ports, info.services)
-                ] if info.ports else []
+                    {
+                        "port": port_info['port'],
+                        "protocol": port_info['protocol'],
+                        "state": port_info['state'],
+                        "service": port_info['service'],
+                        "version": port_info.get('version', '')
+                    }
+                    for port_info in info.ports
+                ]
             }
 
         with open(filename, "w", encoding="utf-8") as f:
@@ -153,7 +191,7 @@ class ReportGenerator:
             writer.writerow(["# Data/Hora", time.strftime("%Y-%m-%d %H:%M:%S")])
             writer.writerow(["# Rede", network])
             writer.writerow(["# Total de hosts", str(len(hosts))])
-            writer.writerow(["# Hosts com portas abertas", str(len([h for h in hosts.values() if h.ports]))])
+            writer.writerow(["# Hosts com portas abertas", str(len([h for h in hosts.values() if any(p.get('state', '').lower() == 'open' for p in h.ports)]))])
             writer.writerow([])  # Linha em branco para separação
             
             # Escreve o cabeçalho da tabela de hosts
@@ -164,8 +202,19 @@ class ReportGenerator:
                 hostname = info.hostname if info.hostname != "N/A" else ""
                 mac = info.mac if info.mac != "N/A" else ""
                 vendor = info.vendor if info.vendor != "N/A" else ""
-                ports = "|".join(info.ports) if info.ports else ""
-                services = "|".join(info.services) if info.services else ""
+                
+                # Formata portas e serviços
+                open_ports = [p for p in info.ports if p.get('state', '').lower() == 'open']
+                ports = []
+                services = []
+                
+                for port_info in open_ports:
+                    port_str = f"{port_info['port']}/{port_info['protocol']}"
+                    service_str = f"{port_info['service']}"
+                    if port_info.get('version'):
+                        service_str += f" {port_info['version']}"
+                    ports.append(port_str)
+                    services.append(service_str)
                 
                 writer.writerow([
                     ip,
@@ -173,8 +222,8 @@ class ReportGenerator:
                     hostname,
                     mac,
                     vendor,
-                    ports,
-                    services
+                    "|".join(ports),
+                    "|".join(services)
                 ])
 
     @staticmethod
@@ -188,7 +237,7 @@ class ReportGenerator:
         ET.SubElement(metadata, "timestamp").text = time.strftime("%Y-%m-%d %H:%M:%S")
         ET.SubElement(metadata, "network").text = network
         ET.SubElement(metadata, "total_hosts").text = str(len(hosts))
-        ET.SubElement(metadata, "hosts_with_open_ports").text = str(len([h for h in hosts.values() if h.ports]))
+        ET.SubElement(metadata, "hosts_with_open_ports").text = str(len([h for h in hosts.values() if any(p.get('state', '').lower() == 'open' for p in h.ports)]))
         
         # Adiciona hosts
         hosts_element = ET.SubElement(root, "hosts")
@@ -206,10 +255,16 @@ class ReportGenerator:
             
             if info.ports:
                 ports = ET.SubElement(host, "ports")
-                for port, service in zip(info.ports, info.services):
+                for port_info in info.ports:
                     port_element = ET.SubElement(ports, "port")
-                    port_element.set("number", port)
-                    ET.SubElement(port_element, "service").text = service
+                    port_element.set("number", str(port_info['port']))
+                    port_element.set("protocol", port_info['protocol'])
+                    port_element.set("state", port_info['state'])
+                    
+                    service_element = ET.SubElement(port_element, "service")
+                    service_element.text = port_info['service']
+                    if port_info.get('version'):
+                        service_element.set("version", port_info['version'])
         
         # Formata o XML para ser legível
         xmlstr = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")

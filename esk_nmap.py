@@ -12,6 +12,7 @@ import sys
 import ipaddress
 from src.ui.cli import CLI
 from src.core.scanner import NetworkScanner
+from src.core.history_manager import HistoryManager  # Nova importação
 from src.reports.report_generator import ReportGenerator, ReportFormat
 from src.utils.system_utils import SystemUtils
 from src.utils.logger import ESKLogger, info, error, debug, warning
@@ -78,43 +79,46 @@ def main():
         
         # Inicializa o scanner com o perfil selecionado
         scanner = NetworkScanner(nmap_path)
-        scanner.set_scan_profile(selected_profile)
         scanner.set_quiet_mode(args.quiet)
         
         info(f"Iniciando scan da rede {args.network}...")
 
-        # Scan inicial de descoberta
+        # Scan inicial de descoberta (sempre executado)
         debug("Executando scan de descoberta")
         hosts = scanner.scan_network(args.network)
         
         # Exibe os resultados se não estiver em modo silencioso
         if not args.quiet:
             cli.display_hosts_table(hosts)
+            print(f"\nTotal de hosts descobertos: {len(hosts)}")
 
+        # Se houver hosts e o usuário quiser scan detalhado
         if hosts and (args.quiet or cli.ask_detailed_scan()):
-            # Aqui é a mudança: passamos o dicionário de hosts completo
-            detailed_results = {}
-            for ip, host_info in hosts.items():
-                debug(f"Iniciando scan detalhado do host: {ip}")
-                detailed_scan = scanner.detailed_scan({ip})
-                if ip in detailed_scan:
-                    # Preserva as informações iniciais e adiciona as portas
-                    host_info.ports = detailed_scan[ip].ports
-                    host_info.services = detailed_scan[ip].services
-                    detailed_results[ip] = host_info
-                else:
-                    # Se não encontrou portas, mantém as informações iniciais
-                    detailed_results[ip] = host_info
-
-            # Determina o formato do relatório
-            report_format = ReportFormat[args.format.upper()]
+            info("Iniciando scan detalhado dos hosts...")
+            scanner.set_scan_profile(selected_profile)  # Define o perfil para o scan detalhado
+            detailed_results = scanner.detailed_scan(hosts)  # Passa o dicionário completo
             
-            # Define o nome do arquivo de saída
-            if args.output:
-                report_file = args.output
-            else:
-                report_file = ReportGenerator.create_filename(args.network, report_format)
-                
+            # Exibe resultados detalhados se não estiver em modo silencioso
+            if not args.quiet:
+                print("\nResultados do scan detalhado:")
+                cli.display_hosts_table(detailed_results)
+        else:
+            detailed_results = hosts
+
+        # Salva os resultados no histórico
+        try:
+            history_manager = HistoryManager()
+            scan_id = history_manager.save_scan_results(args.network, detailed_results, selected_profile)
+            if not args.quiet:
+                print(f"\nResultados salvos no histórico com ID: {scan_id}")
+        except Exception as e:
+            warning(f"Não foi possível salvar os resultados no histórico: {str(e)}")
+
+        # Gera o relatório
+        if args.output or not args.quiet:
+            report_format = ReportFormat[args.format.upper()]
+            report_file = args.output or ReportGenerator.create_filename(args.network, report_format)
+            
             info(f"Gerando relatório em {report_file}")
             ReportGenerator.generate_report(report_file, detailed_results, args.network, report_format)
             info(f"Relatório completo salvo em: {report_file}")

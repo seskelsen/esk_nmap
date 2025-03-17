@@ -37,8 +37,8 @@ scan_profiles:
 
 timeouts:
   discovery: 180
-  port_scan: 300
-  version_scan: 120
+  port_scan: 600
+  version_scan: 300
 
 retry:
   max_attempts: 3

@@ -191,3 +191,64 @@ def test_reload_config_with_new_path():
             # Deve recarregar com novo valor
             manager = ConfigManager(tmp2.name)
             assert manager.get_timeout('discovery') == 200
+
+def test_config_merge_with_invalid_section():
+    """Testa o merge de configurações com uma seção inválida"""
+    custom_config = {
+        'invalid_section': {
+            'some_value': 123
+        }
+    }
+    
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as tmp:
+        yaml.dump(custom_config, tmp)
+        tmp.flush()
+        
+        manager = ConfigManager(tmp.name)
+        # Deve manter as seções padrão mesmo com seção inválida
+        assert 'scan_profiles' in manager._config
+        assert 'timeouts' in manager._config
+        assert 'retry' in manager._config
+        assert 'reporting' in manager._config
+        # A seção inválida deve ser mantida
+        assert 'invalid_section' in manager._config
+
+def test_config_with_empty_sections():
+    """Testa o comportamento com seções vazias"""
+    custom_config = {
+        'scan_profiles': {},
+        'timeouts': {},
+        'retry': {},
+        'reporting': {}
+    }
+    
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as tmp:
+        yaml.dump(custom_config, tmp)
+        tmp.flush()
+        
+        manager = ConfigManager(tmp.name)
+        # Deve usar valores padrão para seções vazias
+        assert manager.get_timeout('discovery') == 180
+        assert manager.get_retry_config()['max_attempts'] == 3
+        assert manager.get_reporting_config()['format'] == 'text'
+        
+        # Deve ter o perfil básico mesmo com scan_profiles vazio
+        profile = manager.get_scan_profile('basic')
+        assert profile is not None
+        assert profile['name'] == 'Scan Básico'
+
+def test_config_with_invalid_yaml_syntax():
+    """Testa o comportamento com sintaxe YAML inválida"""
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as tmp:
+        tmp.write("""
+        scan_profiles:
+          basic:
+            name: 'Test
+            description: Invalid YAML
+        """)
+        tmp.flush()
+        
+        manager = ConfigManager(tmp.name)
+        # Deve usar configuração padrão quando YAML é inválido
+        assert manager.get_scan_profile('basic')['name'] == 'Scan Básico'
+        assert manager.get_timeout('discovery') == 180

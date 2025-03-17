@@ -14,22 +14,46 @@ class TestReportGenerator:
             "192.168.1.1": HostInfo(
                 ip="192.168.1.1",
                 hostname="router.local",
-                status="Up",
                 mac="00:11:22:33:44:55",
                 vendor="Test Vendor",
+                is_up=True,
                 ports=["80/tcp", "443/tcp"],
                 services=["http", "https"]
             ),
             "192.168.1.2": HostInfo(
                 ip="192.168.1.2",
                 hostname="server.local",
-                status="Up",
                 mac="AA:BB:CC:DD:EE:FF",
                 vendor="Another Vendor",
+                is_up=True,
                 ports=["22/tcp", "3389/tcp"],
                 services=["ssh", "ms-wbt-server"]
             )
         }
+
+    @pytest.fixture
+    def report_generator(self):
+        return ReportGenerator()
+
+    @pytest.fixture
+    def sample_results(self):
+        results = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                mac="00:11:22:33:44:55",
+                vendor="Vendor1"
+            ),
+            "192.168.1.2": HostInfo(
+                ip="192.168.1.2",
+                mac="AA:BB:CC:DD:EE:FF",
+                vendor="Vendor2"
+            )
+        }
+        results["192.168.1.1"].ports = ["80/tcp", "443/tcp"]
+        results["192.168.1.1"].services = ["http", "https"]
+        results["192.168.1.2"].ports = ["22/tcp"]
+        results["192.168.1.2"].services = ["ssh"]
+        return results
 
     def test_create_filename_with_format(self):
         """Testa a criação de nomes de arquivo para diferentes formatos"""
@@ -196,7 +220,7 @@ class TestReportGenerator:
             "192.168.1.1": HostInfo(
                 ip="192.168.1.1",
                 hostname="servidor-café.local",
-                status="Up",
+                is_up=True,
                 mac="00:11:22:33:44:55",
                 vendor="Fabricante Eletrônicos",
                 ports=["80/tcp"],
@@ -228,3 +252,343 @@ class TestReportGenerator:
                 assert "443/tcp" in content
                 assert "http" in content
                 assert "https" in content
+
+    def test_host_info_na_values(self, tmp_path):
+        """Testa o tratamento de valores N/A em todos os formatos"""
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname="N/A",
+                is_up=True,
+                mac="N/A",
+                vendor="N/A",
+                ports=[],
+                services=[]
+            )
+        }
+        network = "192.168.1.0/24"
+        
+        for format in ReportFormat:
+            filename = str(tmp_path / f"test_na_report.{format.name.lower()}")
+            ReportGenerator.generate_report(filename, hosts_data, network, format)
+            
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if format == ReportFormat.JSON:
+                    data = json.loads(content)
+                    assert data["hosts"]["192.168.1.1"]["hostname"] is None
+                    assert data["hosts"]["192.168.1.1"]["mac"] is None
+                    assert data["hosts"]["192.168.1.1"]["vendor"] is None
+                elif format == ReportFormat.XML:
+                    root = ET.fromstring(content)
+                    host = root.find(".//host[ip='192.168.1.1']")
+                    assert host.find("hostname") is None
+                    assert host.find("mac") is None
+                    assert host.find("vendor") is None
+
+    def test_create_filename_special_chars(self):
+        """Testa a criação de nomes de arquivo com caracteres especiais na rede"""
+        special_networks = [
+            "192.168.1.0/24",
+            "fe80::1/64",
+            "2001:db8::/32",
+            "10.0.0.0/8"
+        ]
+        
+        for network in special_networks:
+            filename = ReportGenerator.create_filename(network)
+            assert "/" not in filename
+            assert "\\" not in filename
+            assert ":" not in filename
+            assert filename.startswith("esk_nmap_report_")
+            assert ".text" in filename
+
+    def test_report_very_long_values(self, tmp_path):
+        """Testa o tratamento de valores muito longos em todos os formatos"""
+        long_hostname = "a" * 100
+        long_vendor = "b" * 100
+        long_service = "c" * 100
+        
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname=long_hostname,
+                is_up=True,
+                mac="00:11:22:33:44:55",
+                vendor=long_vendor,
+                ports=["80/tcp"],
+                services=[long_service]
+            )
+        }
+        network = "192.168.1.0/24"
+        
+        for format in ReportFormat:
+            filename = str(tmp_path / f"test_long_values.{format.name.lower()}")
+            ReportGenerator.generate_report(filename, hosts_data, network, format)
+            
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if format == ReportFormat.TEXT:
+                    lines = content.splitlines()
+                    # Verifica se as linhas da tabela não estão quebradas
+                    for line in lines:
+                        if "|" in line:
+                            cells = [cell.strip() for cell in line.split("|")]
+                            assert all(len(cell) <= 35 for cell in cells), "Células não devem exceder o limite"
+                elif format == ReportFormat.CSV:
+                    # CSV deve preservar os valores completos
+                    assert long_hostname in content
+                    assert long_vendor in content
+                    assert long_service in content
+
+    def test_report_multiple_ports_formatting(self, tmp_path):
+        """Testa a formatação de múltiplas portas e serviços"""
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname="test.local",
+                is_up=True,
+                mac="00:11:22:33:44:55",
+                vendor="Test Vendor",
+                ports=["21/tcp", "22/tcp", "80/tcp", "443/tcp", "3306/tcp"],
+                services=["ftp", "ssh", "http", "https", "mysql"]
+            )
+        }
+        network = "192.168.1.0/24"
+        
+        for format in ReportFormat:
+            filename = str(tmp_path / f"test_multiple_ports.{format.name.lower()}")
+            ReportGenerator.generate_report(filename, hosts_data, network, format)
+            
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if format == ReportFormat.TEXT:
+                    assert all(port in content for port in ["21/tcp", "22/tcp", "80/tcp", "443/tcp", "3306/tcp"])
+                    assert all(service in content for service in ["ftp", "ssh", "http", "https", "mysql"])
+                elif format == ReportFormat.JSON:
+                    data = json.loads(content)
+                    ports_data = data["hosts"]["192.168.1.1"]["ports"]
+                    assert len(ports_data) == 5
+                    assert all(p["service"] in ["ftp", "ssh", "http", "https", "mysql"] for p in ports_data)
+                elif format == ReportFormat.CSV:
+                    assert "21/tcp|22/tcp|80/tcp|443/tcp|3306/tcp" in content
+                    assert "ftp|ssh|http|https|mysql" in content
+                elif format == ReportFormat.XML:
+                    root = ET.fromstring(content)
+                    ports = root.findall(".//port")
+                    assert len(ports) == 5
+                    services = [p.find("service").text for p in ports]
+                    assert all(s in services for s in ["ftp", "ssh", "http", "https", "mysql"])
+
+    def test_invalid_report_format(self, tmp_path):
+        """Testa o comportamento com um formato de relatório inválido"""
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname="test.local",
+                is_up=True
+            )
+        }
+        network = "192.168.1.0/24"
+        filename = str(tmp_path / "test_invalid.txt")
+        
+        # Tenta usar um formato inválido
+        with pytest.raises(AttributeError):
+            ReportGenerator.generate_report(filename, hosts_data, network, "invalid_format")
+
+    def test_report_file_permissions(self, tmp_path):
+        """Testa a geração de relatório com diferentes permissões de arquivo"""
+        hosts_data = {"192.168.1.1": HostInfo(ip="192.168.1.1")}
+        network = "192.168.1.0/24"
+        
+        # Cria um diretório com permissões restritas
+        restricted_dir = tmp_path / "restricted"
+        restricted_dir.mkdir()
+        filename = str(restricted_dir / "test_report.text")
+        
+        # Tenta gerar o relatório
+        ReportGenerator.generate_report(filename, hosts_data, network, ReportFormat.TEXT)
+        
+        # Verifica se o arquivo foi criado e pode ser lido
+        assert os.path.exists(filename)
+        with open(filename, 'r', encoding='utf-8') as f:
+            content = f.read()
+            assert "ESK_NMAP" in content
+
+    def test_report_with_mixed_port_formats(self, tmp_path):
+        """Testa o relatório com diferentes formatos de portas"""
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname="test.local",
+                is_up=True,
+                mac="00:11:22:33:44:55",
+                vendor="Test Vendor",
+                ports=["80/tcp", "443", "udp/53", "3306/tcp"],
+                services=["http", "https", "dns", "mysql"]
+            )
+        }
+        network = "192.168.1.0/24"
+        
+        for format in ReportFormat:
+            filename = str(tmp_path / f"test_port_formats.{format.name.lower()}")
+            ReportGenerator.generate_report(filename, hosts_data, network, format)
+            
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+                assert "80/tcp" in content
+                assert "443" in content
+                assert "udp/53" in content
+                assert "3306/tcp" in content
+
+    def test_report_with_special_chars_in_service(self, tmp_path):
+        """Testa a geração de relatórios com caracteres especiais nos serviços"""
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname="test.local",
+                is_up=True,
+                mac="00:11:22:33:44:55",
+                vendor="Test Vendor",
+                ports=["80/tcp"],
+                services=["http-proxy&special<chars>"]
+            )
+        }
+        network = "192.168.1.0/24"
+        
+        for format in ReportFormat:
+            filename = str(tmp_path / f"test_special_chars.{format.name.lower()}")
+            ReportGenerator.generate_report(filename, hosts_data, network, format)
+            
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+                assert "http-proxy&special<chars>" in content
+    
+    def test_report_with_empty_optional_fields(self, tmp_path):
+        """Testa a geração de relatórios quando campos opcionais estão vazios"""
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname="N/A",
+                is_up=True,
+                mac="N/A",
+                vendor="N/A",
+                ports=[],
+                services=[]
+            )
+        }
+        network = "192.168.1.0/24"
+        
+        for format in ReportFormat:
+            filename = str(tmp_path / f"test_empty_fields.{format.name.lower()}")
+            ReportGenerator.generate_report(filename, hosts_data, network, format)
+    
+    def test_report_with_very_long_values(self, tmp_path):
+        """Testa o truncamento adequado de valores muito longos nos relatórios"""
+        long_hostname = "a" * 100
+        long_vendor = "b" * 100
+        long_service = "c" * 100
+        
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname=long_hostname,
+                is_up=True,
+                mac="00:11:22:33:44:55",
+                vendor=long_vendor,
+                ports=["80/tcp"],
+                services=[long_service]
+            )
+        }
+        network = "192.168.1.0/24"
+        
+        for format in ReportFormat:
+            filename = str(tmp_path / f"test_long_values.{format.name.lower()}")
+            ReportGenerator.generate_report(filename, hosts_data, network, format)
+
+    def test_create_filename_with_invalid_chars(self):
+        """Testa a criação de nome de arquivo com caracteres inválidos na rede"""
+        network = "192.168.1.0/24:*?<>|"
+        filename = ReportGenerator.create_filename(network)
+        
+        invalid_chars = [":", "*", "?", "<", ">", "|"]
+        for char in invalid_chars:
+            assert char not in filename
+            
+    def test_report_with_non_ascii_chars(self, tmp_path):
+        """Testa a geração de relatórios com caracteres não ASCII"""
+        hosts_data = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                hostname="téstê.local",
+                is_up=True,
+                mac="00:11:22:33:44:55",
+                vendor="Vendedor Padrão",
+                ports=["80/tcp"],
+                services=["serviço-web"]
+            )
+        }
+        network = "192.168.1.0/24"
+        
+        for format in ReportFormat:
+            filename = str(tmp_path / f"test_non_ascii.{format.name.lower()}")
+            ReportGenerator.generate_report(filename, hosts_data, network, format)
+            
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+                assert "téstê.local" in content
+                assert "Vendedor Padrão" in content
+                assert "serviço-web" in content
+
+    def test_generate_text_report(self, report_generator, sample_results):
+        report = report_generator.generate_text_report(sample_results)
+        assert "192.168.1.1" in report
+        assert "192.168.1.2" in report
+        assert "00:11:22:33:44:55" in report
+        assert "AA:BB:CC:DD:EE:FF" in report
+        assert "80/tcp" in report
+        assert "443/tcp" in report
+        assert "22/tcp" in report
+
+    def test_generate_json_report(self, report_generator, sample_results):
+        report = report_generator.generate_json_report(sample_results)
+        assert isinstance(report, dict)
+        assert "192.168.1.1" in report
+        assert "192.168.1.2" in report
+        assert report["192.168.1.1"]["mac"] == "00:11:22:33:44:55"
+        assert report["192.168.1.2"]["mac"] == "AA:BB:CC:DD:EE:FF"
+        assert "80/tcp" in report["192.168.1.1"]["ports"]
+        assert "22/tcp" in report["192.168.1.2"]["ports"]
+
+    def test_generate_html_report(self, report_generator, sample_results):
+        report = report_generator.generate_html_report(sample_results)
+        assert "<!DOCTYPE html>" in report
+        assert "192.168.1.1" in report
+        assert "192.168.1.2" in report
+        assert "00:11:22:33:44:55" in report
+        assert "AA:BB:CC:DD:EE:FF" in report
+        assert "80/tcp" in report
+        assert "443/tcp" in report
+        assert "22/tcp" in report
+
+    def test_empty_results(self, report_generator):
+        empty_results = {}
+        text_report = report_generator.generate_text_report(empty_results)
+        json_report = report_generator.generate_json_report(empty_results)
+        html_report = report_generator.generate_html_report(empty_results)
+        
+        assert "No hosts found" in text_report
+        assert isinstance(json_report, dict)
+        assert len(json_report) == 0
+        assert "No hosts found" in html_report
+
+    def test_host_without_ports(self, report_generator):
+        results = {
+            "192.168.1.1": HostInfo(
+                ip="192.168.1.1",
+                mac="00:11:22:33:44:55",
+                vendor="Vendor1"
+            )
+        }
+        text_report = report_generator.generate_text_report(results)
+        assert "No open ports" in text_report

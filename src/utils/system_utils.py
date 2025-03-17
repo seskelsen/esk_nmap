@@ -24,7 +24,7 @@ class SystemUtils:
         try:
             result = subprocess.run(['where', 'nmap'], capture_output=True, text=True, check=False)
             if result.returncode == 0:
-                return result.stdout.strip().split('\n')[0]
+                return result.stdout.strip().split('\n')[0].strip()
             
             windows_paths = [
                 r"c:\Program Files (x86)\Nmap\nmap.exe",
