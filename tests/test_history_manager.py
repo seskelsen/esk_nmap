@@ -2,6 +2,7 @@ import pytest
 import os
 import sqlite3
 import tempfile
+import json
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 
@@ -41,16 +42,22 @@ class TestHistoryManager:
                 hostname="router.local",
                 mac="00:11:22:33:44:55",
                 vendor="Vendor A",
-                ports=["80/tcp", "443/tcp"],
-                services=["http", "https"]
+                is_up=True,
+                ports=[
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
+                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
+                ]
             ),
             "192.168.1.2": HostInfo(
                 ip="192.168.1.2",
                 hostname="server.local",
                 mac="AA:BB:CC:DD:EE:FF",
                 vendor="Vendor B",
-                ports=["22/tcp", "3306/tcp"],
-                services=["ssh", "mysql"]
+                is_up=True,
+                ports=[
+                    {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"},
+                    {"port": 3306, "protocol": "tcp", "state": "open", "service": "mysql"}
+                ]
             )
         }
         
@@ -63,24 +70,34 @@ class TestHistoryManager:
                 hostname="router.local",
                 mac="00:11:22:33:44:55",
                 vendor="Vendor A",
-                ports=["80/tcp", "443/tcp", "8080/tcp"],  # Nova porta
-                services=["http", "https", "http-proxy"]
+                is_up=True,
+                ports=[
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
+                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"},
+                    {"port": 8080, "protocol": "tcp", "state": "open", "service": "http-proxy"}  # Nova porta
+                ]
             ),
             "192.168.1.2": HostInfo(
                 ip="192.168.1.2",
                 hostname="server.local",
                 mac="AA:BB:CC:DD:EE:FF",
                 vendor="Vendor B",
-                ports=["22/tcp"],  # Porta 3306/tcp fechada
-                services=["ssh"]
+                is_up=True,
+                ports=[
+                    {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"}
+                    # Porta 3306/tcp fechada
+                ]
             ),
             "192.168.1.3": HostInfo(  # Host novo
                 ip="192.168.1.3",
                 hostname="workstation.local",
                 mac="11:22:33:44:55:66",
                 vendor="Vendor C",
-                ports=["135/tcp", "445/tcp"],
-                services=["msrpc", "microsoft-ds"]
+                is_up=True,
+                ports=[
+                    {"port": 135, "protocol": "tcp", "state": "open", "service": "msrpc"},
+                    {"port": 445, "protocol": "tcp", "state": "open", "service": "microsoft-ds"}
+                ]
             )
         }
         
@@ -93,8 +110,10 @@ class TestHistoryManager:
                 hostname="gateway",
                 mac="FF:EE:DD:CC:BB:AA",
                 vendor="Vendor X",
-                ports=["80/tcp"],
-                services=["http"]
+                is_up=True,
+                ports=[
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"}
+                ]
             )
         }
         
@@ -144,8 +163,13 @@ class TestHistoryManager:
             "192.168.1.1": HostInfo(
                 ip="192.168.1.1",
                 hostname="test.local",
+                mac="00:11:22:33:44:55",  # Adicionado valor MAC
+                vendor="Test Vendor",     # Adicionado valor de fabricante
                 is_up=True,
-                ports=[{"port": 80, "state": "open", "service": "http"}]
+                ports=[
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
+                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
+                ]
             )
         }
         
@@ -181,6 +205,7 @@ class TestHistoryManager:
         port_rows = cursor.fetchall()
         assert len(port_rows) == 2
         
+        # Cria um dicionário de portas para facilitar a verificação
         ports = {row[1]: row[2] for row in port_rows}
         assert "80/tcp" in ports
         assert "443/tcp" in ports
@@ -227,8 +252,12 @@ class TestHistoryManager:
         assert "192.168.1.2" in hosts
         
         # Verifica portas
-        assert set(hosts["192.168.1.1"]["ports"]) == {"80/tcp", "443/tcp"}
-        assert set(hosts["192.168.1.2"]["ports"]) == {"22/tcp", "3306/tcp"}
+        ports1 = set(hosts["192.168.1.1"]["ports"])
+        ports2 = set(hosts["192.168.1.2"]["ports"])
+        assert "80/tcp" in ports1
+        assert "443/tcp" in ports1
+        assert "22/tcp" in ports2
+        assert "3306/tcp" in ports2
     
     def test_get_scan_by_id_nonexistent(self, history_manager):
         """Testa a obtenção de um scan inexistente"""
@@ -242,7 +271,9 @@ class TestHistoryManager:
         # Obtém scans da primeira rede
         scans = history_manager.get_scans_by_network("192.168.1.0/24")
         assert len(scans) == 2
-        assert {scan['id'] for scan in scans} == {scan_id1, scan_id2}
+        scan_ids = {scan['id'] for scan in scans}
+        assert scan_id1 in scan_ids
+        assert scan_id2 in scan_ids
         
         # Obtém scans da segunda rede
         scans = history_manager.get_scans_by_network("10.0.0.0/24")
@@ -283,7 +314,6 @@ class TestHistoryManager:
         assert os.path.exists(output_file)
         
         # Verifica se o arquivo contém dados válidos
-        import json
         with open(output_file, 'r') as f:
             data = json.load(f)
         

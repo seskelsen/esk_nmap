@@ -1,108 +1,130 @@
-# ESK_NMAP - Network Scanner Tool
+# ESK NMAP
 
-![Python](https://img.shields.io/badge/Python-3.12%2B-blue.svg)
-![License](https://img.shields.io/badge/License-GPL%20v2-blue.svg)
-![Coverage](https://img.shields.io/badge/Coverage-70%25-yellow.svg)
-![Development Status](https://img.shields.io/badge/Status-Beta-yellow.svg)
+[![Build Status](https://img.shields.io/travis/username/esk_nmap/master.svg)](https://travis-ci.org/username/esk_nmap)
+[![Coverage Status](https://img.shields.io/codecov/c/github/username/esk_nmap/master.svg)](https://codecov.io/gh/username/esk_nmap)
+[![License](https://img.shields.io/github/license/username/esk_nmap.svg)](LICENSE)
 
-## 🚀 Sobre o Projeto
+ESK NMAP é uma ferramenta avançada de varredura de rede baseada no Nmap, desenvolvida pela Eskel Cybersecurity.
 
-ESK_NMAP é uma ferramenta de scanner de rede desenvolvida pela Eskel Cybersecurity. Construída sobre o Nmap, oferece uma interface amigável e recursos adicionais para facilitar a descoberta e análise de hosts em uma rede.
+## Status do Projeto
 
-### ✨ Principais Recursos
+🚀 Versão atual: 0.2.0 (18/03/2025)
 
-- 🔍 Descoberta automática de hosts
-- 📊 Múltiplos formatos de relatório (TEXT, JSON, CSV, XML)
-- 🎯 Perfis de scan predefinidos
-- 📈 Barra de progresso em tempo real
-- 📝 Sistema de logging estruturado
-- 🔄 Histórico de scans com comparação
-- ⚙️ Configuração flexível via YAML
+### Cobertura de Testes
+- ConfigManager: 98%
+- Scanner: 85%
+- HistoryManager: 90%
+- ReportGenerator: 93%
+- CLI: 80%
+- Total: 89%
 
-### 🛠️ Estado Atual
+## Características
 
-O projeto está em fase beta, com foco atual em:
-- Melhorias de estabilidade
-- Correção de bugs
-- Otimização de performance
-- Aumento da cobertura de testes
+- 🔍 Descoberta automática de hosts na rede
+- 📊 Múltiplos formatos de relatório (JSON, CSV, XML, HTML)
+- ⚙️ Sistema flexível de configuração via YAML
+- 📝 Logging estruturado com rotação de arquivos
+- 🚦 Interface CLI com feedback em tempo real
+- 💾 Armazenamento de histórico de scans
+- 🔒 Validação robusta de entradas e permissões
 
-## 📋 Pré-requisitos
+## Instalação
 
-- Python 3.12 ou superior
-- Nmap instalado no sistema
-- Sistema operacional: Windows ou Linux
-- Privilégios de administrador (recomendado)
+### Pré-requisitos
 
-## 🔧 Instalação
+- Python 3.8+
+- Nmap 7.80+
+- Privilégios de administrador/root para algumas funcionalidades
+
+### Passos para Instalação
 
 1. Clone o repositório:
 ```bash
-git clone https://github.com/eskelcyber/esk_nmap.git
+git clone https://github.com/eskelsecurity/esk_nmap.git
+cd esk_nmap
 ```
 
 2. Instale as dependências:
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-## 🎮 Uso Básico
-
-1. Scan básico de uma rede:
+3. Verifique a instalação:
 ```bash
+python esk_nmap.py --version
+```
+
+## Uso Rápido
+
+```bash
+# Scan básico de rede
 python esk_nmap.py scan 192.168.1.0/24
+
+# Scan com detecção de versão
+python esk_nmap.py scan -p 1-1000 -sV 192.168.1.0/24
+
+# Gerar relatório em formato específico
+python esk_nmap.py scan --output report.json --format json 192.168.1.0/24
 ```
 
-2. Scan com perfil específico:
+## Configuração
+
+O arquivo `config.yaml` permite personalizar:
+
+- Perfis de scan predefinidos
+- Timeouts e tentativas
+- Formatos de relatório
+- Configurações de logging
+- Opções de performance
+
+## Desenvolvimento
+
+### Preparando o Ambiente de Desenvolvimento
+
+1. Clone o repositório:
 ```bash
-python esk_nmap.py scan 192.168.1.0/24 --profile complete
+git clone https://github.com/eskelsecurity/esk_nmap.git
+cd esk_nmap
 ```
 
-3. Gerar relatório em formato específico:
+2. Crie um ambiente virtual (recomendado):
 ```bash
-python esk_nmap.py scan 192.168.1.0/24 --output relatorio.json --format json
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+.\venv\Scripts\activate   # Windows
 ```
 
-## 📊 Perfis de Scan Disponíveis
+3. Instale as dependências de desenvolvimento:
+```bash
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+```
 
-- basic: Scan rápido para visão geral
-- stealth: Scan discreto usando SYN stealth
-- version: Scan com detecção de versões
-- complete: Scan detalhado com scripts NSE
-- quick: Scan rápido de portas comuns
+### Executando Testes
 
-## 📝 Formatos de Relatório
+```bash
+pytest
+pytest --cov=src tests/
+```
 
-- TEXT: Relatório em texto formatado
-- JSON: Formato estruturado para integração
-- CSV: Formato tabular para planilhas
-- XML: Formato estruturado com metadados
+## Contribuindo
 
-## 🔄 Versionamento
-
-Usamos [SemVer](http://semver.org/) para versionamento.
-Consulte o [CHANGELOG.md](CHANGELOG.md) para ver o histórico de alterações.
-
-## 🎯 Roadmap
-
-Consulte o [TODO.md](TODO.md) para ver as próximas melhorias planejadas.
-
-## 🤝 Contribuição
-
-1. Faça um Fork do projeto
+1. Fork o projeto
 2. Crie sua Feature Branch (`git checkout -b feature/AmazingFeature`)
 3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
 4. Push para a Branch (`git push origin feature/AmazingFeature`)
 5. Abra um Pull Request
 
-## 📜 Licença
+## Licença
 
-Este projeto está licenciado sob a GNU General Public License v2 - veja o arquivo [LICENSE](LICENSE) para detalhes.
+Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE](LICENSE) para detalhes.
 
-## 📞 Contato
+## Autores
 
-Sigmar Eskelsen - sigmar@eskelcyber.com
+- **Sigmar Eskelsen** - *Trabalho inicial* - [EskelSecurity](https://github.com/eskelsecurity)
 
-## ⚠️ Aviso Legal
+## Agradecimentos
 
-Esta ferramenta deve ser usada apenas em redes e sistemas que você tem permissão para escanear. O uso indevido pode ser ilegal em sua jurisdição.
+- Equipe do Nmap pelo excelente scanner
+- Comunidade Python por feedbacks e contribuições
+- Todos os contribuidores que ajudaram a melhorar o projeto

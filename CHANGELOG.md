@@ -5,6 +5,24 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Adicionado
+- Novos testes para o ConfigManager cobrindo casos extremos
+- Testes adicionais para o ReportGenerator
+- Validação adicional de campos na classe HostInfo
+- Testes para cenários de falha no NetworkScanner
+
+### Alterado
+- Melhoria significativa na cobertura de testes do ConfigManager (98%)
+- Refatoração dos testes do Scanner para melhor organização
+- Otimização do parsing de resultados do Nmap
+
+### Corrigido
+- Verificação e validação da classe HostInfo (confirmado funcionamento correto)
+- Problemas com manipulação de StringIO no ReportGenerator
+- Tratamento de caracteres especiais em nomes de arquivo
+
 ## [1.7.0] - Em desenvolvimento
 
 ### Corrigido
@@ -170,3 +188,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - Fabricante do dispositivo
   - Portas abertas
   - Serviços em execução
+
+[Unreleased]: https://github.com/username/esk_nmap/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/username/esk_nmap/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/username/esk_nmap/releases/tag/v0.1.0

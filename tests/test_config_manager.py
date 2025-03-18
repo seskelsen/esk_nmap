@@ -252,3 +252,99 @@ def test_config_with_invalid_yaml_syntax():
         # Deve usar configuração padrão quando YAML é inválido
         assert manager.get_scan_profile('basic')['name'] == 'Scan Básico'
         assert manager.get_timeout('discovery') == 180
+
+def test_force_config_reload():
+    """Testa se o _load_config é chamado quando _config é None"""
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as tmp:
+        yaml.dump({'timeouts': {'discovery': 500}}, tmp)
+        tmp.flush()
+        
+        manager = ConfigManager(tmp.name)
+        assert manager.get_timeout('discovery') == 500
+        
+        # Forçar reload definindo _config como None
+        manager._config = None
+        assert manager.get_scan_profile('basic') is not None
+        assert manager.get_timeout('discovery') == 500
+
+def test_get_retry_config_with_none_config():
+    """Testa se get_retry_config funciona quando _config é None"""
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as tmp:
+        yaml.dump({'retry': {'max_attempts': 5, 'delay_between_attempts': 10}}, tmp)
+        tmp.flush()
+        
+        manager = ConfigManager(tmp.name)
+        manager._config = None  # Forçar reload
+        
+        retry_config = manager.get_retry_config()
+        assert retry_config['max_attempts'] == 5
+        assert retry_config['delay_between_attempts'] == 10
+
+def test_get_reporting_config_with_none_config():
+    """Testa se get_reporting_config funciona quando _config é None"""
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as tmp:
+        yaml.dump({'reporting': {'format': 'json', 'include_closed_ports': True}}, tmp)
+        tmp.flush()
+        
+        manager = ConfigManager(tmp.name)
+        manager._config = None  # Forçar reload
+        
+        report_config = manager.get_reporting_config()
+        assert report_config['format'] == 'json'
+        assert report_config['include_closed_ports'] == True
+        assert report_config['group_by_port'] == True  # Valor padrão preservado
+
+def test_get_retry_config_with_none_section():
+    """Testa se get_retry_config funciona quando a seção retry não existe no config"""
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as tmp:
+        # Configuração sem a seção 'retry'
+        custom_config = {
+            'timeouts': {'discovery': 300},
+            'reporting': {'format': 'json'}
+        }
+        yaml.dump(custom_config, tmp)
+        tmp.flush()
+        
+        # Forçar uma nova instância sem a seção retry
+        ConfigManager._instance = None
+        manager = ConfigManager(tmp.name)
+        
+        # Remove a seção retry que foi adicionada automaticamente
+        if 'retry' in manager._config:
+            del manager._config['retry']
+        
+        # Deve usar os valores padrão
+        retry_config = manager.get_retry_config()
+        assert retry_config['max_attempts'] == 3
+        assert retry_config['delay_between_attempts'] == 5
+
+def test_config_complete_reload():
+    """Teste específico para cobrir o último caso não coberto"""
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as tmp:
+        yaml.dump({'timeouts': {'discovery': 500}}, tmp)
+        tmp.flush()
+        
+        # Criar uma nova instância limpa
+        ConfigManager._instance = None
+        manager = ConfigManager(tmp.name)
+        
+        # Primeiro verificamos se os valores estão corretos
+        assert manager.get_timeout('discovery') == 500
+        
+        # Agora simulamos uma situação onde _config é None mas a seção retry também não existe após o reload
+        manager._config = None
+        
+        # Este é um hack para interceptar o _load_config e remover a seção retry
+        original_load_config = manager._load_config
+        
+        def mock_load_config():
+            original_load_config()
+            if 'retry' in manager._config:
+                del manager._config['retry']
+        
+        manager._load_config = mock_load_config
+        
+        # Esta chamada deve usar o valor padrão para retry quando não existe a seção
+        retry_config = manager.get_retry_config()
+        assert retry_config['max_attempts'] == 3
+        assert retry_config['delay_between_attempts'] == 5
