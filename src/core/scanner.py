@@ -6,316 +6,572 @@ ESK NMAP - Network Scanner Tool
 Copyright (C) 2025 Eskel Cybersecurity
 Author: Sigmar Eskelsen
 
-Este módulo contém as classes e funções para realizar scans de rede.
+Este módulo contém as classes e funções para escaneamento de redes.
 """
 
 import subprocess
-import re
 import ipaddress
+import re
 import time
-import threading
-from typing import Dict, List, Set, Optional
-import platform
+import concurrent.futures
+from typing import Dict, List, Any, Optional, Union, Set
 from tqdm import tqdm
-from ..utils.logger import info, debug, error
+
+from ..utils.logger import info, error, debug, warning
 from ..utils.config_manager import ConfigManager
-from dataclasses import dataclass, field
 
 class ScannerError(Exception):
-    """Exceção para erros relacionados ao scanner de rede."""
+    """Exceção personalizada para erros no scanner"""
     pass
 
 class HostInfo:
-    """Class representing information about a discovered host."""
+    """Classe para armazenar informações sobre um host na rede"""
     
-    def __init__(self, ip: str, hostname: str = "", mac: str = "", vendor: str = "", 
-                 ports: List[Dict] = None, is_up: bool = False, status: str = None):
+    def __init__(self, ip: str, hostname: str = "N/A", mac: str = "N/A", 
+                vendor: str = "N/A", ports: List[Any] = None, is_up: bool = False):
+        """
+        Inicializa um objeto HostInfo.
+        
+        Args:
+            ip (str): Endereço IP do host
+            hostname (str): Nome do host (opcional)
+            mac (str): Endereço MAC do host (opcional)
+            vendor (str): Fabricante do dispositivo (opcional)
+            ports (List[Union[Dict, str]]): Lista de portas abertas (opcional)
+            is_up (bool): Se o host está ativo (opcional)
+        """
         self.ip = ip
-        self.hostname = hostname if hostname else "N/A"
-        self.mac = mac if mac else "N/A"
-        self.vendor = vendor if vendor else "N/A"
-        self.ports = ports if ports is not None else []
-        self._is_up = is_up
-        self._status = status
-
-    @property
-    def status(self) -> str:
-        """Returns the status of the host"""
-        if self._status:
-            return self._status
-        return "up" if self._is_up else "down"
-
-    @status.setter
-    def status(self, value: str):
-        """Sets the status of the host"""
-        self._status = value
-        self._is_up = (value.lower() == "up")
+        self.hostname = hostname
+        self.mac = mac
+        self.vendor = vendor
+        self.ports = ports or []
+        self._is_up = False
+        self._status = "down"
+        # Garante que is_up atualize o status corretamente
+        self.is_up = is_up
 
     @property
     def is_up(self) -> bool:
-        """Returns whether the host is up"""
+        """Retorna se o host está online"""
         return self._is_up
 
     @is_up.setter
     def is_up(self, value: bool):
-        """Sets whether the host is up"""
+        """Define se o host está online"""
         self._is_up = value
-        if value:
-            self._status = "up"
-        else:
-            self._status = "down"
+        # Atualiza o status baseado no valor de is_up
+        self._status = "up" if value else "down"
 
     @property
+    def status(self) -> str:
+        """Retorna o status do host (up, down, filtered, etc)"""
+        return self._status
+    
+    @status.setter
+    def status(self, value: str) -> None:
+        """Define o status do host e atualiza is_up se necessário"""
+        self._status = value
+        self._is_up = (value == "up")
+    
+    @property
     def services(self) -> List[str]:
-        """Returns list of services from open ports"""
-        return [port.get('service', 'unknown') for port in self.ports if port.get('state', '').lower() == 'open']
-
+        """Retorna a lista de serviços nos portas abertas"""
+        services = []
+        for port_info in self.ports:
+            if isinstance(port_info, dict):
+                if port_info.get('state', '').lower() == 'open':
+                    services.append(port_info.get('service', 'unknown'))
+            else:
+                # Assume que é uma string no formato "80/tcp" se não for um dict
+                services.append("unknown")
+        return services
+    
     def __str__(self) -> str:
-        parts = [f"Host: {self.ip}"]
+        """Representação em string do objeto HostInfo"""
+        result = [f"Host: {self.ip}"]
         if self.hostname != "N/A":
-            parts.append(f"Hostname: {self.hostname}")
+            result.append(f"Hostname: {self.hostname}")
         if self.mac != "N/A":
-            parts.append(f"MAC: {self.mac}")
+            result.append(f"MAC: {self.mac}")
         if self.vendor != "N/A":
-            parts.append(f"Vendor: {self.vendor}")
-        parts.append(f"Status: {self.status}")
+            result.append(f"Vendor: {self.vendor}")
+        result.append(f"Status: {self.status}")
+        
         if self.ports:
-            parts.append("Open ports:")
-            for port in self.ports:
-                port_str = f"  {port['port']}/{port.get('protocol', 'tcp')} - {port.get('service', 'unknown')}"
-                if 'version' in port:
-                    port_str += f" {port['version']}"
-                parts.append(port_str)
-        return "\n".join(parts)
-
-@dataclass
-class NetworkScanner:
-    """Class responsible for network scanning operations."""
-    
-    network_range: str = ""
-    verbosity: int = 0
-    _nmap_path: str = field(default_factory=lambda: "nmap")
-    _scan_profile: str = "basic"
-    _quiet_mode: bool = False
-    _config_manager: ConfigManager = field(default_factory=ConfigManager)
-    _batch_size: int = 3  # Reduzido para 3 hosts por grupo
-    
-    def set_scan_profile(self, profile: str = "basic"):
-        """Set the scan profile to use for scanning operations."""
-        valid_profiles = self._config_manager._config.get('scan_profiles', {}).keys()
-        if profile not in valid_profiles:
-            profile = "basic"
-        self._scan_profile = profile
-    
-    def set_quiet_mode(self, quiet: bool):
-        """Set quiet mode for the scanner."""
-        self._quiet_mode = quiet
-        
-    def _get_scan_options(self) -> List[str]:
-        """Get nmap options based on the current scan profile."""
-        profile_config = self._config_manager.get_scan_profile(self._scan_profile)
-        options = profile_config.get('options', ['-sS', '--top-ports', '100'])  # Default to basic scan options
-        
-        if self.verbosity > 0:
-            options.append("-v")
-        return options
-
-    def scan_network(self, network: str) -> Dict[str, HostInfo]:
-        """Perform initial network scan to discover hosts."""
-        self._validate_network_range(network)
-
-        # Cria uma barra de progresso simulada para o scan inicial
-        with tqdm(total=10, disable=self._quiet_mode, 
-                 desc="Descobrindo hosts na rede", 
-                 unit="", ncols=80,
-                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as progress_bar:
-            try:
-                cmd = [self._nmap_path, "-sn", network]  # Host discovery only
-                if self.verbosity > 0:
-                    cmd.append("-v")
-                
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True
-                )
-
-                # Atualiza a barra enquanto o scan está em andamento
-                while process.poll() is None:
-                    progress_bar.n = min(progress_bar.n + 0.1, progress_bar.total - 0.5)
-                    progress_bar.refresh()
-                    time.sleep(0.1)
-
-                stdout, stderr = process.communicate()
-                
-                if process.returncode != 0:
-                    error(f"Erro no scan inicial: {stderr}")
-                    raise ScannerError(f"Erro no scan de descoberta: {stderr}")
-
-                progress_bar.n = progress_bar.total
-                progress_bar.refresh()
-                
-                return self._parse_nmap_output(stdout)
-
-            except subprocess.TimeoutExpired:
-                error("Timeout durante scan inicial")
-                raise ScannerError("Timeout durante scan de descoberta")
-            except Exception as e:
-                error(f"Erro durante scan inicial: {str(e)}")
-                raise ScannerError(f"Erro durante scan de descoberta: {str(e)}")
-            finally:
-                progress_bar.close()
-
-    def detailed_scan(self, targets: Dict[str, HostInfo]) -> Dict[str, HostInfo]:
-        """Perform a detailed scan of discovered hosts using the current profile."""
-        if not targets:
-            return {}
-            
-        results = {}
-        ip_list = list(targets.keys())
-        total_batches = (len(ip_list) + self._batch_size - 1) // self._batch_size
-        retry_config = self._config_manager.get_retry_config()
-
-        # Cria barra de progresso para o scan detalhado
-        with tqdm(total=len(ip_list), disable=self._quiet_mode,
-                 desc="Escaneando hosts", unit="host",
-                 ncols=80, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} hosts') as progress_bar:
-
-            for i in range(0, len(ip_list), self._batch_size):
-                batch = ip_list[i:i + self._batch_size]
-                batch_num = (i // self._batch_size) + 1
-                
-                if not self._quiet_mode:
-                    info(f"Escaneando grupo {batch_num}/{total_batches} ({len(batch)} hosts)")
-                
-                timeout = self._config_manager.get_timeout('port_scan')
-                if self._scan_profile in ['version', 'complete']:
-                    timeout = max(timeout, self._config_manager.get_timeout('version_scan'))
-                
-                cmd = [self._nmap_path] + self._get_scan_options()
-                cmd.extend(batch)
-
-                attempt = 1
-                success = False
-                last_error = None
-                
-                while attempt <= retry_config['max_attempts'] and not success:
-                    try:
-                        if attempt > 1 and not self._quiet_mode:
-                            info(f"Tentativa {attempt}/{retry_config['max_attempts']} para o grupo {batch_num}")
-                        
-                        result = subprocess.run(
-                            cmd, 
-                            capture_output=True, 
-                            text=True, 
-                            check=True, 
-                            timeout=timeout
-                        )
-                        
-                        scan_results = self._parse_nmap_output(result.stdout)
-                        
-                        # Processa os resultados mantendo as informações originais
-                        for ip in batch:
-                            if ip in scan_results:
-                                # Preserva informações existentes e atualiza com novos dados
-                                scan_results[ip].hostname = targets[ip].hostname or scan_results[ip].hostname
-                                scan_results[ip].mac = targets[ip].mac or scan_results[ip].mac
-                                scan_results[ip].vendor = targets[ip].vendor or scan_results[ip].vendor
-                                results[ip] = scan_results[ip]
-                            else:
-                                # Se não houver novos dados, mantém as informações originais
-                                results[ip] = targets[ip]
-                        
-                        success = True
-                        progress_bar.update(len(batch))
-
-                    except subprocess.TimeoutExpired:
-                        last_error = "timeout"
-                        error(f"Timeout ao escanear grupo {batch_num} (tentativa {attempt})")
-                    except subprocess.CalledProcessError as e:
-                        last_error = str(e)
-                        error(f"Erro ao escanear grupo {batch_num} (tentativa {attempt}): {str(e)}")
-                    except Exception as e:
-                        last_error = str(e)
-                        error(f"Erro inesperado ao escanear grupo {batch_num} (tentativa {attempt}): {str(e)}")
+            result.append("Portas abertas:")
+            for port_info in self.ports:
+                if isinstance(port_info, dict):
+                    port_str = f"{port_info['port']}/{port_info.get('protocol', 'tcp')}"
+                    port_service = port_info.get('service', 'unknown')
+                    port_version = f" ({port_info.get('version', '')})" if port_info.get('version') else ""
+                    result.append(f"  {port_str}: {port_service}{port_version}")
+                else:
+                    # Assume que é uma string se não for um dict
+                    result.append(f"  {port_info}")
                     
-                    if not success and attempt < retry_config['max_attempts']:
-                        time.sleep(retry_config['delay_between_attempts'])
-                    attempt += 1
-                
-                if not success:
-                    error(f"Todas as tentativas falharam para o grupo {batch_num}: {last_error}")
-                    # Em caso de falha, mantém as informações originais dos hosts
-                    for ip in batch:
-                        results[ip] = targets[ip]
-                    progress_bar.update(len(batch))
-                
-                # Pausa entre grupos para não sobrecarregar a rede
-                if batch_num < total_batches:
-                    time.sleep(2)
+        return "\n".join(result)
 
+class NetworkScanner:
+    """Classe para escaneamento de redes usando nmap"""
+    
+    def __init__(self, nmap_path: Optional[str] = None):
+        """
+        Inicializa o NetworkScanner.
+        
+        Args:
+            nmap_path (Optional[str]): Caminho para o executável do nmap.
+                Se não for fornecido, será usado o nmap no PATH.
+        """
+        self.network_range = ""
+        self.verbosity = 0
+        self._nmap_path = nmap_path or "nmap"
+        self._scan_profile = "basic"
+        self._quiet_mode = False
+        self._batch_size = 10  # Número de hosts para escanear em cada batch
+        self._max_threads = 5  # Número máximo de threads para paralelização
+        self._throttle_delay = 0.5  # Delay entre execuções de threads (segundos)
+        self._config_manager = ConfigManager()
+    
+    def set_scan_profile(self, profile_name: str) -> None:
+        """
+        Define o perfil de scan a ser utilizado.
+        
+        Args:
+            profile_name (str): Nome do perfil de scan
+        """
+        # Verifica se o perfil existe na configuração
+        profiles = self._config_manager._config.get('scan_profiles', {})
+        if profile_name in profiles:
+            self._scan_profile = profile_name
+        else:
+            warning(f"Perfil '{profile_name}' não encontrado. Usando perfil 'basic' como fallback.")
+            self._scan_profile = "basic"
+    
+    def set_quiet_mode(self, quiet_mode: bool) -> None:
+        """
+        Define o modo silencioso.
+        
+        Args:
+            quiet_mode (bool): Se True, não exibe barras de progresso
+        """
+        self._quiet_mode = quiet_mode
+    
+    def set_batch_size(self, batch_size: int) -> None:
+        """
+        Define o tamanho do lote para processamento em batch.
+        
+        Args:
+            batch_size (int): Número de hosts para processar em cada lote
+        """
+        if batch_size < 1:
+            raise ValueError("O tamanho do batch deve ser pelo menos 1")
+        self._batch_size = batch_size
+
+    def set_max_threads(self, max_threads: int) -> None:
+        """
+        Define o número máximo de threads para paralelização.
+        
+        Args:
+            max_threads (int): Número máximo de threads a serem utilizadas
+        """
+        if max_threads < 1:
+            raise ValueError("O número de threads deve ser pelo menos 1")
+        self._max_threads = max_threads
+    
+    def set_throttle_delay(self, delay: float) -> None:
+        """
+        Define o atraso entre execuções de threads para controle de tráfego.
+        
+        Args:
+            delay (float): Atraso em segundos
+        """
+        if delay < 0:
+            raise ValueError("O atraso deve ser não-negativo")
+        self._throttle_delay = delay
+
+    def _get_scan_options(self) -> List[str]:
+        """
+        Obtém as opções de scan com base no perfil selecionado.
+        
+        Returns:
+            List[str]: Lista de opções para o comando nmap
+        """
+        profile_config = self._config_manager.get_scan_profile(self._scan_profile)
+        options = profile_config.get('options', []).copy()  # Faz uma cópia para não modificar o original
+        
+        # Adiciona opções de verbosidade se necessário
+        if self.verbosity >= 2:
+            options.append('-vv')
+        elif self.verbosity == 1:
+            options.append('-v')
+        
+        return options
+    
+    def _validate_network_range(self, network_range: str) -> None:
+        """
+        Valida se o range de rede é válido.
+        
+        Args:
+            network_range (str): Range de rede em formato CIDR ou IP único
+            
+        Raises:
+            ValueError: Se o range for inválido
+        """
+        try:
+            # Se é um range CIDR
+            if '/' in network_range:
+                ipaddress.ip_network(network_range, strict=False)
+            # Se é um IP único
+            else:
+                ipaddress.ip_address(network_range)
+        except ValueError as e:
+            raise ValueError(f"Range de rede inválido: {network_range}. Erro: {str(e)}")
+    
+    def _parse_nmap_output(self, output: str) -> Dict[str, HostInfo]:
+        """
+        Parseia a saída do nmap para extrair informações dos hosts.
+        
+        Args:
+            output (str): Saída do comando nmap
+            
+        Returns:
+            Dict[str, HostInfo]: Dicionário de hosts encontrados
+        """
+        hosts = {}
+        
+        # Encontra os blocos de relatório para cada host
+        host_blocks = re.finditer(r'Nmap scan report for (\S+)(?:\s*\(([^\)]+)\))?\n(.*?)(?=Nmap scan report for|\Z)', 
+                                  output, re.DOTALL)
+        
+        for match in host_blocks:
+            hostname_or_ip = match.group(1)
+            possible_ip = match.group(2)
+            host_data = match.group(3)
+            
+            # Determina o IP e o hostname
+            if possible_ip and re.match(r'\d+\.\d+\.\d+\.\d+', possible_ip):
+                ip = possible_ip
+                hostname = hostname_or_ip
+            else:
+                ip = hostname_or_ip
+                hostname = "N/A"
+            
+            # Verifica se o host está up
+            is_up = "Host is up" in host_data
+            
+            # Extrai MAC address e vendor, se disponíveis
+            mac_match = re.search(r'MAC Address: ([0-9A-Fa-f:]{17}) \(?([^\)]+)?\)?', host_data)
+            mac = mac_match.group(1) if mac_match else "N/A"
+            vendor = mac_match.group(2) if mac_match and mac_match.group(2) else "N/A"
+            
+            # Extrai informações de portas, se disponíveis
+            ports = []
+            
+            # Procura a linha PORT STATE SERVICE VERSION que indica o início da lista de portas
+            port_data = re.search(r'PORT\s+STATE\s+SERVICE(?:\s+VERSION)?\n(.*?)(?=\n\n|\Z)', host_data, re.DOTALL)
+            if port_data:
+                # Processa cada linha de porta individualmente
+                port_lines = port_data.group(1).strip().split('\n')
+                for line in port_lines:
+                    if not line.strip():
+                        continue
+                        
+                    # Separa os campos da linha
+                    parts = line.split(None, 3)  # Divide em no máximo 4 partes
+                    if len(parts) < 3:
+                        continue
+                        
+                    # Processa o número da porta e protocolo
+                    port_proto = parts[0].split('/')
+                    if len(port_proto) != 2:
+                        continue
+                        
+                    port = int(port_proto[0])
+                    protocol = port_proto[1]
+                    state = parts[1]
+                    service = parts[2]
+                    version = parts[3] if len(parts) > 3 else ""
+                    
+                    ports.append({
+                        'port': port,
+                        'protocol': protocol,
+                        'state': state,
+                        'service': service,
+                        'version': version.strip()
+                    })
+            
+            # Cria o objeto HostInfo
+            hosts[ip] = HostInfo(
+                ip=ip,
+                hostname=hostname,
+                mac=mac,
+                vendor=vendor,
+                ports=ports,
+                is_up=is_up
+            )
+        
+        return hosts
+    
+    def scan_network(self, network_range: str) -> Dict[str, HostInfo]:
+        """
+        Executa um scan na rede para descobrir hosts ativos.
+        
+        Args:
+            network_range (str): Range de rede para escanear (ex: 192.168.1.0/24)
+            
+        Returns:
+            Dict[str, HostInfo]: Dicionário de hosts encontrados
+        """
+        self._validate_network_range(network_range)
+        self.network_range = network_range
+        
+        # Comando básico para descoberta de hosts
+        cmd = [self._nmap_path, "-sn"]
+        
+        # Adiciona opções do perfil se houver alguma específica para host discovery
+        profile_options = self._get_scan_options()
+        if any(opt.startswith('-P') for opt in profile_options):
+            # Só adiciona as opções que começam com -P (opções de ping/descoberta)
+            cmd.extend([opt for opt in profile_options if opt.startswith('-P')])
+        
+        # Adiciona o range de rede
+        cmd.append(network_range)
+        
+        debug(f"Executando comando: {' '.join(cmd)}")
+        
+        try:
+            # Executa o comando nmap com monitoramento de progresso
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            
+            # Feedback visual enquanto o scan está em andamento
+            if not self._quiet_mode:
+                with tqdm(total=10, desc="Descobrindo hosts na rede") as pbar:
+                    while process.poll() is None:
+                        pbar.update(1)
+                        time.sleep(0.5)
+                        if pbar.n >= pbar.total:
+                            pbar.reset()
+            
+            # Aguarda a conclusão e obtém a saída
+            stdout, stderr = process.communicate()
+            
+            if process.returncode != 0:
+                error(f"Erro ao executar nmap: {stderr}")
+                raise ScannerError(f"Nmap retornou código de erro {process.returncode}: {stderr}")
+            
+            # Parseia a saída para encontrar hosts
+            hosts = self._parse_nmap_output(stdout)
+            
+            if not self._quiet_mode:
+                debug(f"Descobertos {len(hosts)} hosts ativos na rede {network_range}")
+            
+            return hosts
+            
+        except subprocess.TimeoutExpired:
+            error(f"Timeout ao executar scan de descoberta na rede {network_range}")
+            raise ScannerError(f"Timeout durante scan de descoberta")
+        except Exception as e:
+            error(f"Erro durante scan de descoberta: {str(e)}")
+            raise ScannerError(f"Erro durante scan de descoberta: {str(e)}")
+
+    def _scan_host_batch(self, host_ips: List[str]) -> Dict[str, HostInfo]:
+        """
+        Escaneia um lote de hosts para detectar portas e serviços.
+        
+        Args:
+            host_ips (List[str]): Lista de IPs para escanear
+            
+        Returns:
+            Dict[str, HostInfo]: Dicionário com os resultados do scan
+        """
+        if not host_ips:
+            return {}
+        
+        # Prepara o comando nmap com as opções do perfil
+        cmd = [self._nmap_path] + self._get_scan_options()
+        cmd.extend(host_ips)
+        
+        debug(f"Escaneando batch de {len(host_ips)} hosts: {', '.join(host_ips)}")
+        
+        # Executa com retry automático em caso de falha
+        retry_config = self._config_manager.get_retry_config()
+        max_attempts = retry_config.get('max_attempts', 3)
+        delay = retry_config.get('delay_between_attempts', 2)
+        timeout = self._config_manager.get_timeout('batch_scan')
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout
+                )
+                
+                if result.returncode != 0:
+                    warning(f"nmap retornou código de erro {result.returncode} no batch {host_ips}")
+                    if attempt < max_attempts:
+                        debug(f"Tentativa {attempt}/{max_attempts} falhou. Tentando novamente em {delay}s...")
+                        time.sleep(delay)
+                        continue
+                
+                # Sucesso - parseia a saída
+                return self._parse_nmap_output(result.stdout)
+                
+            except subprocess.TimeoutExpired:
+                warning(f"Timeout ao escanear batch {host_ips}")
+                if attempt < max_attempts:
+                    debug(f"Tentativa {attempt}/{max_attempts} falhou (timeout). Tentando novamente em {delay}s...")
+                    time.sleep(delay)
+                else:
+                    error(f"Todas as {max_attempts} tentativas falharam para o batch {host_ips}")
+                    return {}  # Retorna vazio após todas as tentativas
+            except Exception as e:
+                error(f"Erro ao escanear batch {host_ips}: {str(e)}")
+                if attempt < max_attempts:
+                    debug(f"Tentativa {attempt}/{max_attempts} falhou. Tentando novamente em {delay}s...")
+                    time.sleep(delay)
+                else:
+                    error(f"Todas as {max_attempts} tentativas falharam para o batch {host_ips}")
+                    return {}
+        
+        # Se chegou aqui, todas as tentativas falharam
+        return {}
+
+    def _process_host_batch_parallel(self, host_batches: List[List[str]]) -> Dict[str, HostInfo]:
+        """
+        Processa múltiplos batches de hosts em paralelo usando ThreadPoolExecutor.
+        
+        Args:
+            host_batches (List[List[str]]): Lista de batches, onde cada batch é uma lista de IPs
+            
+        Returns:
+            Dict[str, HostInfo]: Dicionário combinado com resultados de todos os batches
+        """
+        results = {}
+        
+        # Configura o executor com o número máximo de threads
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_threads) as executor:
+            # Submete os jobs e aplica throttling se configurado
+            futures = []
+            for batch in host_batches:
+                futures.append(executor.submit(self._scan_host_batch, batch))
+                if self._throttle_delay > 0:
+                    time.sleep(self._throttle_delay)  # Throttling entre submissões
+            
+            # Processa os resultados à medida que são concluídos
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    batch_result = future.result()
+                    results.update(batch_result)
+                except Exception as e:
+                    error(f"Erro ao processar batch em paralelo: {str(e)}")
+        
         return results
 
-    def discover_hosts(self, network: str) -> Dict[str, HostInfo]:
-        """Discover hosts in the specified network range."""
-        return self.scan_network(network)
+    def detailed_scan(self, hosts: Dict[str, HostInfo]) -> Dict[str, HostInfo]:
+        """
+        Executa um scan detalhado dos hosts descobertos para encontrar portas e serviços.
+        
+        Args:
+            hosts (Dict[str, HostInfo]): Dicionário de hosts encontrados na fase de descoberta
+            
+        Returns:
+            Dict[str, HostInfo]: Dicionário atualizado com informações detalhadas
+        """
+        if not hosts:
+            warning("Nenhum host para scan detalhado")
+            return {}
+        
+        # Filtra apenas hosts ativos
+        active_hosts = {ip: info for ip, info in hosts.items() if info.is_up}
+        
+        if not active_hosts:
+            warning("Nenhum host ativo para scan detalhado")
+            return hosts  # Retorna a lista original
+        
+        # Divide os hosts em batches para processamento
+        host_ips = list(active_hosts.keys())
+        total_hosts = len(host_ips)
+        
+        # Cria batches de hosts
+        host_batches = []
+        for i in range(0, total_hosts, self._batch_size):
+            batch = host_ips[i:i + self._batch_size]
+            host_batches.append(batch)
+        
+        info(f"Escaneando grupo 1/{len(host_batches)} ({total_hosts} hosts)")
+        
+        # Feedback visual
+        if not self._quiet_mode:
+            with tqdm(total=total_hosts, desc="Escaneando hosts") as pbar:
+                # Processa os batches em paralelo se tiver mais de um batch
+                if len(host_batches) > 1 and self._max_threads > 1:
+                    detailed_results = self._process_host_batch_parallel(host_batches)
+                    pbar.update(total_hosts)  # Atualiza a barra de progresso no final
+                else:
+                    # Processamento sequencial para um único batch ou se _max_threads = 1
+                    detailed_results = {}
+                    for batch in host_batches:
+                        batch_results = self._scan_host_batch(batch)
+                        detailed_results.update(batch_results)
+                        pbar.update(len(batch))
+        else:
+            # Modo silencioso, sem barra de progresso
+            if len(host_batches) > 1 and self._max_threads > 1:
+                detailed_results = self._process_host_batch_parallel(host_batches)
+            else:
+                detailed_results = {}
+                for batch in host_batches:
+                    batch_results = self._scan_host_batch(batch)
+                    detailed_results.update(batch_results)
+        
+        # Merge dos resultados detalhados nos hosts originais
+        for ip, detailed_info in detailed_results.items():
+            if ip in hosts:
+                # Mantém as informações originais do host
+                original_host = hosts[ip]
+                detailed_info.hostname = original_host.hostname if original_host.hostname != "N/A" else detailed_info.hostname
+                detailed_info.mac = original_host.mac if original_host.mac != "N/A" else detailed_info.mac
+                detailed_info.vendor = original_host.vendor if original_host.vendor != "N/A" else detailed_info.vendor
+                hosts[ip] = detailed_info
+        
+        return hosts
 
     def scan_ports(self, target: str) -> Dict[str, HostInfo]:
-        """Scan ports on a specific target."""
-        self._validate_network_range(target)
-        cmd = [self._nmap_path] + self._get_scan_options() + [target]
+        """
+        Escaneia portas em um único target.
         
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return self._parse_nmap_output(result.stdout)
-
-    def _validate_network_range(self, network: str):
-        """Validate the network range format."""
+        Args:
+            target (str): IP ou hostname para escanear
+            
+        Returns:
+            Dict[str, HostInfo]: Dicionário com resultado do scan
+        """
+        # Prepara o comando nmap com as opções do perfil
+        cmd = [self._nmap_path] + self._get_scan_options()
+        cmd.append(target)
+        
+        debug(f"Escaneando portas em {target}")
+        
+        # Executa o comando
         try:
-            if '/' in network:
-                ipaddress.ip_network(network)
-            else:
-                ipaddress.ip_address(network)
-        except ValueError as e:
-            raise ValueError(f"Invalid network range: {network}") from e
-
-    def _parse_nmap_output(self, output: str) -> Dict[str, HostInfo]:
-        """Parse nmap output and return structured data."""
-        hosts: Dict[str, HostInfo] = {}
-        current_ip = None
-        
-        for line in output.splitlines():
-            if "Nmap scan report for" in line:
-                ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', line)
-                if ip_match:
-                    current_ip = ip_match.group(0)
-                    hosts[current_ip] = HostInfo(ip=current_ip)
-                    hosts[current_ip].is_up = True
-                    
-                    hostname_match = re.search(r'for ([^\s(]+)', line)
-                    if hostname_match and not re.match(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', hostname_match.group(1)):
-                        hosts[current_ip].hostname = hostname_match.group(1)
-                        
-            elif current_ip and "MAC Address:" in line:
-                mac_match = re.search(r'MAC Address: ([0-9A-F:]{17})(?: \((.+)\))?', line, re.IGNORECASE)
-                if mac_match:
-                    hosts[current_ip].mac = mac_match.group(1)
-                    if mac_match.group(2):
-                        hosts[current_ip].vendor = mac_match.group(2)
-                        
-            elif current_ip and re.match(r'\d+/\w+\s+\w+\s+\w+', line):
-                port_info = re.match(r'(\d+)/(\w+)\s+(\w+)\s+(.+)', line)
-                if port_info:
-                    port_num = int(port_info.group(1))
-                    service = port_info.group(4).split()[0].lower()  # Get first word of service info
-                    port_data = {
-                        'port': port_num,
-                        'protocol': port_info.group(2),
-                        'state': port_info.group(3),
-                        'service': service
-                    }
-                    hosts[current_ip].ports.append(port_data)
-                    
-        return hosts
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self._config_manager.get_timeout('port_scan')
+            )
+            
+            if result.returncode != 0:
+                warning(f"nmap retornou código de erro {result.returncode}")
+            
+            # Parseia a saída para encontrar hosts e portas
+            return self._parse_nmap_output(result.stdout)
+            
+        except subprocess.TimeoutExpired:
+            error(f"Timeout ao escanear {target}")
+            raise ScannerError(f"Timeout durante scan de {target}")
+        except Exception as e:
+            error(f"Erro ao escanear {target}: {str(e)}")
+            raise ScannerError(f"Erro durante scan de {target}: {str(e)}")

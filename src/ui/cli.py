@@ -35,59 +35,80 @@ class CLI:
         # Inicialização da CLI com ConfigManager e HistoryManager
         self.config_manager = ConfigManager()
         self.history_manager = HistoryManager()
-    
-    @staticmethod
-    def parse_arguments():
-        """Analisa os argumentos da linha de comando"""
-        parser = argparse.ArgumentParser(
-            description="ESK NMAP - Network Scanner Tool",
-            formatter_class=argparse.RawDescriptionHelpFormatter
-        )
-        
-        # Cria subparsers para diferentes comandos
-        subparsers = parser.add_subparsers(dest='command', help='Comandos disponíveis')
-        
-        # Comando 'scan' para executar um novo scan
-        scan_parser = subparsers.add_parser('scan', help='Executar um novo scan de rede')
-        scan_parser.add_argument("network", help="Rede a ser escaneada (ex: 192.168.1.0/24)")
-        scan_parser.add_argument("--config", "-c", help="Caminho para arquivo de configuração personalizado")
-        scan_parser.add_argument("--profile", "-p", help="Perfil de scan a ser utilizado")
-        scan_parser.add_argument("--output", "-o", help="Arquivo de saída para o relatório")
-        scan_parser.add_argument("--format", "-f", choices=[f.name.lower() for f in ReportFormat], 
-                             default="text", help="Formato do relatório (text, json, csv, xml)")
-        scan_parser.add_argument("--verbose", "-v", action="count", default=0, help="Aumentar nível de verbosidade")
-        scan_parser.add_argument("--quiet", "-q", action="store_true", help="Modo silencioso")
-        
-        # Comando 'history' para gerenciar histórico
-        history_parser = subparsers.add_parser('history', help='Gerenciar histórico de scans')
-        history_subparsers = history_parser.add_subparsers(dest='history_command', help='Comandos de histórico')
-        
-        # Subcomandos do histórico
-        list_parser = history_subparsers.add_parser('list', help='Listar scans anteriores')
-        list_parser.add_argument("--network", help="Filtrar por rede específica")
-        list_parser.add_argument("--limit", type=int, default=10, help="Número máximo de scans a exibir")
-        
-        show_parser = history_subparsers.add_parser('show', help='Mostrar detalhes de um scan específico')
-        show_parser.add_argument("id", type=int, help="ID do scan")
-        show_parser.add_argument("--output", "-o", help="Exportar para arquivo")
-        show_parser.add_argument("--format", "-f", choices=['text', 'json'], default='text', help="Formato da saída")
-        
-        compare_parser = history_subparsers.add_parser('compare', help='Comparar dois scans')
-        compare_parser.add_argument("id1", type=int, help="ID do primeiro scan")
-        compare_parser.add_argument("id2", type=int, help="ID do segundo scan")
-        compare_parser.add_argument("--output", "-o", help="Exportar comparação para arquivo")
-        
-        delete_parser = history_subparsers.add_parser('delete', help='Excluir um scan do histórico')
-        delete_parser.add_argument("id", type=int, help="ID do scan a ser excluído")
-        
-        return parser.parse_args()
+        self.scanner = NetworkScanner()
+        self.last_results = None
 
     @staticmethod
     def show_banner():
+        """Alias para show_header para manter compatibilidade com código existente"""
+        CLI.show_header()
+
+    @staticmethod
+    def show_header():
+        """Exibe o cabeçalho do programa"""
         print("=" * 60)
         print("ESK_NMAP - Scanner de Rede da Eskel Cybersecurity")
         print("=" * 60)
         print()
+
+    @staticmethod
+    def parse_arguments():
+        """Configura e processa os argumentos da linha de comando"""
+        parser = argparse.ArgumentParser(description='ESK_NMAP - Scanner de Rede')
+
+        # Argumentos globais
+        parser.add_argument("--verbose", "-v", action="count", default=0,
+                          help="Aumentar nível de verbosidade")
+        parser.add_argument("--quiet", "-q", action="store_true",
+                          help="Modo silencioso")
+        parser.add_argument("--config", "-c",
+                          help="Caminho para arquivo de configuração personalizado")
+
+        # Subcomandos
+        subparsers = parser.add_subparsers(dest='command', help='Comandos disponíveis')
+
+        # Comando scan
+        scan_parser = subparsers.add_parser('scan', help='Executar um novo scan')
+        scan_parser.add_argument("--network",
+                               help="Rede a ser escaneada (ex: 192.168.1.0/24)")
+        scan_parser.add_argument("--ip",
+                               help="IP específico para scan")
+        scan_parser.add_argument("--profile", "-p",
+                               help="Perfil de scan a ser utilizado")
+        scan_parser.add_argument("--output", "-o",
+                               help="Arquivo de saída para o relatório")
+        scan_parser.add_argument("--format", "-f",
+                               choices=[f.name.lower() for f in ReportFormat],
+                               default="text",
+                               help="Formato do relatório (text, json, csv, xml)")
+        scan_parser.add_argument("--batch-size", "-b", type=int, default=10,
+                               help="Número de hosts por lote")
+        scan_parser.add_argument("--max-threads", "-t", type=int, default=5,
+                               help="Número máximo de threads")
+        scan_parser.set_defaults(func=lambda args: CLI().scan(args))
+
+        # Comando history
+        history_parser = subparsers.add_parser('history', help='Gerenciar histórico')
+        history_parser.add_argument("--limit", type=int, default=10,
+                                  help="Número máximo de registros")
+        history_parser.set_defaults(func=lambda args: CLI().history(args))
+
+        # Comando report
+        report_parser = subparsers.add_parser('report', help='Gerar relatórios')
+        report_parser.add_argument("--output", "-o", required=True,
+                                 help="Arquivo de saída")
+        report_parser.add_argument("--format", "-f",
+                                 choices=[f.name.lower() for f in ReportFormat],
+                                 default="text",
+                                 help="Formato do relatório")
+        report_parser.add_argument("--use-history", action="store_true",
+                                 help="Usar dados do histórico")
+        report_parser.add_argument("--index", type=int,
+                                 help="Índice do scan no histórico")
+        report_parser.set_defaults(func=lambda args: CLI().report(args))
+
+        return parser.parse_args()
+
 
     @staticmethod
     def show_usage(program_name: str):
@@ -328,6 +349,14 @@ class CLI:
         scanner.quiet_mode = args.quiet
         scanner.set_scan_profile(args.profile)
         
+        # Configura as opções de paralelização
+        if hasattr(args, 'threads'):
+            scanner.set_max_threads(args.threads)
+        if hasattr(args, 'batch_size'):
+            scanner.set_batch_size(args.batch_size)
+        if hasattr(args, 'throttle'):
+            scanner.set_throttle_delay(args.throttle)
+        
         # Executa o scan e mostra resultados
         results = scanner.scan_network(args.network)
         
@@ -345,3 +374,120 @@ class CLI:
             self.handle_scan_command(args)
         elif args.command == 'history':
             self.handle_history_commands(args)
+
+    def scan_network(self, args):
+        """Executa o scan inicial da rede"""
+        self.scanner.set_quiet_mode(args.quiet)
+        if hasattr(args, 'profile'):
+            self.scanner.set_scan_profile(args.profile)
+        return self.scanner.scan_network(args.network)
+
+    def detailed_scan(self, hosts):
+        """Executa o scan detalhado dos hosts"""
+        return self.scanner.detailed_scan(hosts)
+
+    def scan_ports(self, args):
+        """Executa o scan de portas em um IP específico"""
+        self.scanner.set_quiet_mode(args.quiet)
+        if hasattr(args, 'profile'):
+            self.scanner.set_scan_profile(args.profile)
+        return self.scanner.scan_ports(args.ip)
+
+    def process_results(self, results):
+        """Processa e exibe os resultados do scan"""
+        self.last_results = results
+        self.display_hosts_table(results)
+
+    def scan(self, args):
+        """Executa o comando scan completo"""
+        if not args.network and not args.ip:
+            print("Erro: É necessário especificar uma rede (--network) ou um IP (--ip)")
+            return
+
+        if args.network:
+            # Scan de rede
+            if not args.quiet:
+                print(f"\nIniciando scan na rede {args.network}")
+            
+            # Scan inicial
+            hosts = self.scan_network(args)
+            if not hosts:
+                print("Nenhum host encontrado na rede.")
+                return
+
+            # Pergunta sobre scan detalhado
+            if not args.quiet and self.ask_detailed_scan():
+                hosts = self.detailed_scan(hosts)
+
+            # Processa resultados
+            self.process_results(hosts)
+
+        else:
+            # Scan de IP específico
+            if not args.quiet:
+                print(f"\nIniciando scan no IP {args.ip}")
+            results = self.scan_ports(args)
+            self.process_results(results)
+
+    def history(self, args):
+        """Executa o comando history"""
+        # Obtém o histórico limitado ao número especificado
+        history = self.history_manager.get_scan_list(limit=args.limit)
+        
+        if not history:
+            print("Nenhum registro encontrado no histórico.")
+            return
+
+        # Exibe o histórico em formato tabular
+        table = PrettyTable()
+        table.field_names = ["ID", "Data", "Rede", "Perfil", "Total Hosts"]
+        table.align = "l"
+
+        for entry in history:
+            date = datetime.fromisoformat(entry['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+            table.add_row([
+                entry['id'],
+                date,
+                entry['network'],
+                entry['scan_profile'],
+                entry['total_hosts']
+            ])
+
+        print("\nHistórico de Scans:")
+        print(table)
+
+    def report(self, args):
+        """Executa o comando report"""
+        from ..reports.report_generator import ReportGenerator
+        
+        # Verifica se deve usar dados do histórico
+        if args.use_history:
+            history = self.history_manager.get_history()
+            if not history:
+                print("Nenhum registro encontrado no histórico.")
+                return
+            
+            # Usa o índice especificado ou o último scan
+            scan_data = history[args.index if args.index is not None else 0]
+            data = scan_data["hosts"]
+        else:
+            # Usa os resultados do último scan
+            if not self.last_results:
+                print("Nenhum resultado de scan disponível.")
+                return
+            data = self.last_results
+
+        # Gera o relatório
+        report_gen = ReportGenerator()
+        report_gen.generate_report(data, args.output, args.format)
+        print(f"\nRelatório gerado em: {args.output}")
+
+    def main(self):
+        """Método principal do CLI"""
+        self.show_header()
+        args = self.parse_arguments()
+        
+        if hasattr(args, 'func'):
+            args.func(args)
+        else:
+            print("Nenhum comando especificado. Use --help para ver os comandos disponíveis.")

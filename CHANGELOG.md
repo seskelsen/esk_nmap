@@ -7,40 +7,32 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Planejado
+- Suporte completo a IPv6
+- Interface gráfica de usuário (GUI)
+- Exportação para dashboards interativos
+
+## [1.8.0] - 2025-03-20
+
 ### Adicionado
 - Novos testes para o ConfigManager cobrindo casos extremos
 - Testes adicionais para o ReportGenerator
 - Validação adicional de campos na classe HostInfo
 - Testes para cenários de falha no NetworkScanner
+- Novo módulo de testes de integração (test_integration.py)
+- Implementação da paralelização de scans para melhor performance
 
 ### Alterado
 - Melhoria significativa na cobertura de testes do ConfigManager (98%)
 - Refatoração dos testes do Scanner para melhor organização
 - Otimização do parsing de resultados do Nmap
+- Conclusão das sprints 1 e 2 conforme planejado
 
 ### Corrigido
 - Verificação e validação da classe HostInfo (confirmado funcionamento correto)
 - Problemas com manipulação de StringIO no ReportGenerator
 - Tratamento de caracteres especiais em nomes de arquivo
-
-## [1.7.0] - Em desenvolvimento
-
-### Corrigido
-- Barras de progresso melhoradas no scan inicial e detalhado
-- Tratamento de erros aprimorado durante o scan
-- Problemas na geração de relatórios em diferentes formatos
-- Problemas com caracteres especiais em nomes de arquivo
-
-### Melhorado
-- Sistema de teste otimizado com remoção de testes problemáticos
-- Limpeza do código e remoção de funcionalidades instáveis
-- Documentação atualizada com próximos passos
-- Interface de linha de comando mais responsiva
-
-### Removido
-- Testes unitários problemáticos pendentes de reescrita
-- Código legado não utilizado
-- Funcionalidades instáveis para revisão
+- Bug na interface de linha de comando ao processar argumentos complexos
 
 ## [1.7.0] - 2025-03-16
 

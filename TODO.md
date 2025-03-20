@@ -33,13 +33,13 @@
 - [x] Configurações de relatório personalizáveis
 - [x] Override de configurações via CLI
 
-## 4. Paralelização de Scans [🔴]
+## 4. Paralelização de Scans [🟢]
 
-- [ ] Implementar ThreadPoolExecutor para scans paralelos
-- [ ] Adicionar controle de concorrência
-- [ ] Configuração de número máximo de threads
-- [ ] Mecanismo de throttling para não sobrecarregar a rede
-- [ ] Sistema de fila para grandes redes
+- [x] Implementar ThreadPoolExecutor para scans paralelos
+- [x] Adicionar controle de concorrência
+- [x] Configuração de número máximo de threads
+- [x] Mecanismo de throttling para não sobrecarregar a rede
+- [x] Sistema de fila para grandes redes
 - [ ] Adicionar suporte completo a IPv6
 - [ ] Testes de descoberta e scan em redes IPv6
 - [ ] Validação de endereços IPv6
@@ -61,12 +61,12 @@
 - [ ] Implementar rate limiting
 - [ ] Auditoria de ações
 
-## 7. Otimização de Performance [🟡]
+## 7. Otimização de Performance [🟢]
 
 - [x] Cache de resultados DNS
 - [x] Otimização do parsing de output
-- [ ] Redução de chamadas redundantes
-- [ ] Profiling e otimização de código
+- [x] Redução de chamadas redundantes
+- [x] Profiling e otimização de código
 - [ ] Benchmark suite
 
 ## 8. Sistema de Plugins [🔴]
@@ -93,12 +93,12 @@
 - [ ] Uso de recursos
 - [ ] Dashboards
 
-## 11. Comparador de Resultados [🔴]
+## 11. Comparador de Resultados [🟡]
 
-- [ ] Armazenar histórico de scans
-- [ ] Comparar resultados entre diferentes execuções
-- [ ] Detectar hosts novos/removidos
-- [ ] Detectar portas abertas/fechadas entre scans
+- [x] Armazenar histórico de scans
+- [x] Comparar resultados entre diferentes execuções
+- [x] Detectar hosts novos/removidos
+- [x] Detectar portas abertas/fechadas entre scans
 - [ ] Gerar relatório de mudanças
 - [ ] Visualização gráfica de mudanças
 
@@ -134,20 +134,22 @@
 2. ~~Tratamento de Erros~~ ✅
 3. ~~Sistema de Configuração~~ ✅
 4. ~~Interface de Usuário (Básica)~~ ✅
-5. **Revisão dos Testes Unitários** 🟡
+5. ~~Revisão dos Testes Unitários~~ ✅
    - [x] Alcançar cobertura de 80% no módulo CLI
    - [x] Implementar testes robustos para NetworkScanner
    - [x] Aumentar cobertura do ConfigManager (atual: 98%)
    - [x] Melhorar testes do Scanner (atual: 85%)
    - [x] Melhorar testes do HistoryManager (atual: 90%)
    - [x] Melhorar testes do ReportGenerator (atual: 93%)
-   - [ ] Implementar testes de integração
-   - [ ] Adicionar testes para casos de erro
-6. **Paralelização de Scans** 🔴
-   - [ ] Implementar ThreadPoolExecutor para scans paralelos
-   - [ ] Melhorar performance em redes grandes
-7. **Comparador de Resultados** 🔴
-   - [ ] Implementar funcionalidade básica de comparação entre scans
+   - [x] Implementar testes de integração
+   - [x] Adicionar testes para casos de erro
+6. ~~Paralelização de Scans~~ ✅
+   - [x] Implementar ThreadPoolExecutor para scans paralelos
+   - [x] Melhorar performance em redes grandes
+7. **Comparador de Resultados** 🟡
+   - [x] Implementar funcionalidade básica de comparação entre scans
+   - [ ] Desenvolver interface para visualização de diferenças
+   - [ ] Exportar relatório de diferenças em múltiplos formatos
 
 ### Média Prioridade
 
@@ -176,7 +178,7 @@
 
 - ~~Sistema de Logging deve ser implementado antes do Tratamento de Erros~~ ✅
 - ~~Sistema de Configuração é pré-requisito para Interface de Usuário~~ ✅
-- Sistema de Configuração é pré-requisito para Paralelização
+- ~~Sistema de Configuração é pré-requisito para Paralelização~~ ✅
 - Documentação deve ser atualizada conforme as features são implementadas
 - Monitoramento depende do Sistema de Logging
 - Comparador de Resultados depende de um sistema de armazenamento de histórico
@@ -186,7 +188,7 @@
 
 ## Plano de Implementação Imediata (Próximas 3 Sprints)
 
-### Sprint 1: Melhorar Base de Código (Em Finalização)
+### Sprint 1: Melhorar Base de Código (Concluído) ✅
 
 - [x] Melhorar cobertura de testes do CLI para 80%
 - [x] Implementar mock tests para o Scanner
@@ -194,22 +196,22 @@
 - [x] Melhorar cobertura do Scanner para >80%
 - [x] Melhorar cobertura do HistoryManager para >90%
 - [x] Melhorar cobertura do ReportGenerator para >90%
-- [ ] Atualizar documentação existente
-- [ ] Criar estrutura base para armazenamento de histórico de scans
+- [x] Atualizar documentação existente
+- [x] Criar estrutura base para armazenamento de histórico de scans
 
-### Sprint 2: Paralelização e Performance
+### Sprint 2: Paralelização e Performance (Concluído) ✅
 
-- [ ] Implementar ThreadPoolExecutor para scans paralelos
-- [ ] Adicionar controle de concorrência e configuração de threads
-- [ ] Implementar mecanismo de throttling
-- [ ] Atualizar testes para cobrir execução paralela
+- [x] Implementar ThreadPoolExecutor para scans paralelos
+- [x] Adicionar controle de concorrência e configuração de threads
+- [x] Implementar mecanismo de throttling
+- [x] Atualizar testes para cobrir execução paralela
 
-### Sprint 3: Comparador de Resultados
+### Sprint 3: Comparador de Resultados (Em andamento) 🟡
 
-- Desenvolver o sistema de armazenamento de histórico
-- Implementar algoritmos de comparação entre scans
-- Criar relatórios de diferenças
-- Adicionar visualização básica das mudanças
+- [x] Desenvolver o sistema de armazenamento de histórico
+- [x] Implementar algoritmos de comparação entre scans
+- [ ] Criar relatórios de diferenças
+- [ ] Adicionar visualização básica das mudanças
 
 ## Notas
 
@@ -260,32 +262,32 @@
 - [x] Remover testes unitários quebrados do HistoryManager e reescrever com a implementação correta
 - [x] Melhorar testes unitários do ReportGenerator
 - [x] Melhorar testes unitários do ConfigManager
-- [ ] Melhorar sistema de logging:
-  - Adicionar mais detalhes nos logs de erro
-  - Implementar rotação de logs
-  - Configurar níveis de log por ambiente
+- [x] Melhorar sistema de logging:
+  - [x] Adicionar mais detalhes nos logs de erro
+  - [x] Implementar rotação de logs
+  - [x] Configurar níveis de log por ambiente
 
-- [ ] Refatorar ConfigManager:
-  - Melhorar tratamento de valores None
-  - Implementar validação de campos obrigatórios
-  - Adicionar suporte a recarregamento de configurações
+- [x] Refatorar ConfigManager:
+  - [x] Melhorar tratamento de valores None
+  - [x] Implementar validação de campos obrigatórios
+  - [x] Adicionar suporte a recarregamento de configurações
 
 ## Novas Funcionalidades
 
 - [ ] Implementar comparação avançada entre scans:
-  - Comparação de versões de serviços
-  - Detecção de mudanças em portas específicas
-  - Exportação de relatório de diferenças
+  - [x] Comparação de versões de serviços
+  - [x] Detecção de mudanças em portas específicas
+  - [ ] Exportação de relatório de diferenças
 
 - [ ] Adicionar novos formatos de relatório:
-  - Formato HTML com estilos
-  - Exportação para PDF
-  - Relatórios com gráficos
+  - [ ] Formato HTML com estilos
+  - [ ] Exportação para PDF
+  - [ ] Relatórios com gráficos
 
 - [ ] Melhorar interface de linha de comando:
-  - Adicionar barra de progresso para todas as operações
-  - Melhorar feedback visual durante scans
-  - Implementar modo interativo com menu
+  - [x] Adicionar barra de progresso para todas as operações
+  - [x] Melhorar feedback visual durante scans
+  - [ ] Implementar modo interativo com menu
 
 ## Documentação
 
@@ -301,7 +303,7 @@
 - [x] Aumentar cobertura de testes do HistoryManager (>90%)
 - [x] Aumentar cobertura de testes do ReportGenerator (>90%)
 - [x] Aumentar cobertura de testes do ConfigManager (>95%)
-- [ ] Adicionar testes de integração
+- [x] Adicionar testes de integração
 - [ ] Implementar testes de performance
 - [ ] Criar fixtures reutilizáveis
 - [ ] Melhorar testes de edge cases
@@ -326,16 +328,17 @@
 ## Performance
 
 - [ ] Otimizar consultas ao banco de dados
-- [ ] Implementar cache para resultados frequentes
-- [ ] Melhorar performance de scans em redes grandes
+- [x] Implementar cache para resultados frequentes
+- [x] Melhorar performance de scans em redes grandes
 - [ ] Otimizar geração de relatórios
-- [ ] Implementar processamento paralelo onde possível
+- [x] Implementar processamento paralelo onde possível
 
 ## Próximos Passos Imediatos
 
 1. ~~Melhorar testes do ReportGenerator~~ ✅
 2. ~~Aumentar cobertura do ConfigManager~~ ✅
 3. ~~Corrigir bugs na classe HostInfo~~ ✅ (Verificado: não havia bugs reais)
-4. Implementar testes de integração
-5. Melhorar sistema de logging
-6. Atualizar documentação
+4. ~~Implementar testes de integração~~ ✅
+5. ~~Implementar paralelização de scans~~ ✅
+6. ~~Melhorar sistema de logging~~ ✅
+7. Implementar comparador avançado de resultados (Em andamento)
