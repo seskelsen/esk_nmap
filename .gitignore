@@ -35,6 +35,11 @@ ENV/
 
 # Report files (podem ser grandes e desnecessários no Git)
 esk_nmap_report_*.txt
+esk_nmap_report_*.json
+esk_nmap_report_*.html
+esk_nmap_report_*.csv
+esk_nmap_report_*.xml
+esk_nmap_report_modelo.text
 
 # Arquivos específicos do Windows
 Thumbs.db
@@ -43,3 +48,16 @@ desktop.ini
 # Arquivos de compilação
 *.spec
 *.exe
+*.pyc
+
+# Arquivos de compilação Linux
+*.so
+*.tar.gz
+*.tgz
+
+# Arquivos temporários de compilação
+warn-*.txt
+xref-*.html
+*.toc
+*.pkg
+*.pyz

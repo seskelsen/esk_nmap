@@ -8,9 +8,49 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Planejado
-- Suporte completo a IPv6
-- Interface gráfica de usuário (GUI)
-- Exportação para dashboards interativos
+- Interface web básica
+- Sistema de plugins
+- Detecção de vulnerabilidades
+- Escaneamento agendado
+
+## [1.9.1] - 2025-03-24
+
+### Adicionado
+- Novo perfil "discovery" otimizado para detecção de hostnames e portas abertas
+- Timeouts configuráveis para diferentes tipos de operações
+- Documentação expandida sobre os perfis de scan disponíveis
+
+### Alterado
+- Refatoração do método `scan_network` para resolver problema de loop infinito
+- Substituição do sistema de monitoramento de progresso por uma abordagem baseada em timeout
+- Melhoria na documentação e exemplos de uso
+
+### Corrigido
+- Problema de loop infinito durante scans de rede grandes
+- Aplicação incorreta das opções de perfil nos comandos Nmap
+- Implementação de timeout no scan de descoberta para prevenir esperas infinitas
+
+## [1.9.0] - 2025-03-24
+
+### Adicionado
+- Sistema de logging flexível por ambiente (development/production)
+- Configuração dinâmica de níveis de log
+- Rotação automática de arquivos de log
+- Formato JSON estruturado para logs
+- Comparação avançada entre scans com visualização HTML
+- Novos comandos CLI para comparação de resultados
+- Gráficos comparativos em relatórios HTML
+
+### Alterado
+- Melhorias na documentação (README e TODO atualizados)
+- Otimização do sistema de logging para reduzir impacto em disco
+- Refatoração do sistema de comparação de scans
+- Atualização do formato de relatórios HTML
+
+### Corrigido
+- Problemas de performance no logging extensivo
+- Validação de dados na comparação de scans
+- Geração de relatórios HTML com dados inválidos
 
 ## [1.8.0] - 2025-03-20
 

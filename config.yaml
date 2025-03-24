@@ -3,9 +3,9 @@ scan_profiles:
   basic:
     name: Scan Básico
     description: Scan rápido para visão geral da rede
-    options: ["-T4", "-sn", "-n"]
-    ports: "21-23,25,53,80,443,3306,3389"
-    timing: 4
+    options: ["-T5", "-sn"]  # Mantemos -sn para rápida descoberta, mas sem -n para permitir resolução DNS
+    ports: "21,22,23,25,53,80,443,3389"
+    timing: 5
   
   stealth:
     name: Scan Silencioso
@@ -35,8 +35,15 @@ scan_profiles:
     ports: "80,443"
     timing: 5
 
+  discovery:
+    name: Scan de Descoberta
+    description: Scan para encontrar hostnames e portas comuns
+    options: ["-T4", "-F"]  # -F para scan rápido de portas mais comuns
+    ports: "21,22,23,25,53,80,443,3389"
+    timing: 4
+
 timeouts:
-  discovery: 180
+  discovery: 300  # Aumentado de 180 para 300 segundos
   port_scan: 600
   version_scan: 300
 
@@ -48,3 +55,8 @@ reporting:
   format: text
   include_closed_ports: false
   group_by_port: true
+
+environment: development
+log_level:
+  development: DEBUG
+  production: INFO

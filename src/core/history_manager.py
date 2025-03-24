@@ -13,10 +13,13 @@ import os
 import json
 import time
 import sqlite3
+import csv
+import xml.dom.minidom
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple, Union
+from typing import Dict, List, Any, Optional, Tuple, Union, Literal
 from ..utils.logger import info, debug, error, warning
 from ..core.scanner import HostInfo
+from ..reports.report_generator import ReportFormat, ComparisonFormat, ComparisonReportGenerator
 
 class HistoryManager:
     """
@@ -358,6 +361,28 @@ class HistoryManager:
         except IOError as e:
             error(f"Erro ao exportar scan para JSON: {str(e)}")
             return False
+    
+    def export_comparison_report(self, 
+                               comparison_data: Dict[str, Any], 
+                               output_file: str,
+                               format_type: str = ComparisonFormat.TEXT) -> bool:
+        """
+        Exporta os resultados de uma comparação para um arquivo no formato especificado.
+        
+        Args:
+            comparison_data (Dict[str, Any]): Dados da comparação gerados por compare_scans()
+            output_file (str): Caminho para o arquivo de saída
+            format_type (str): Formato do relatório (text, json, csv, xml, html)
+            
+        Returns:
+            bool: True se a exportação foi bem-sucedida, False caso contrário
+        """
+        # Utiliza a classe ComparisonReportGenerator para exportar o relatório
+        return ComparisonReportGenerator.export_comparison_report(
+            comparison_data=comparison_data,
+            output_file=output_file,
+            format_type=format_type
+        )
     
     def compare_scans(self, 
                        scan_id1: int, 

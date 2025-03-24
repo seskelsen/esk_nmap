@@ -326,13 +326,11 @@ class NetworkScanner:
         self.network_range = network_range
         
         # Comando básico para descoberta de hosts
-        cmd = [self._nmap_path, "-sn"]
+        cmd = [self._nmap_path]
         
-        # Adiciona opções do perfil se houver alguma específica para host discovery
+        # Adiciona todas as opções do perfil
         profile_options = self._get_scan_options()
-        if any(opt.startswith('-P') for opt in profile_options):
-            # Só adiciona as opções que começam com -P (opções de ping/descoberta)
-            cmd.extend([opt for opt in profile_options if opt.startswith('-P')])
+        cmd.extend(profile_options)
         
         # Adiciona o range de rede
         cmd.append(network_range)
@@ -340,36 +338,31 @@ class NetworkScanner:
         debug(f"Executando comando: {' '.join(cmd)}")
         
         try:
-            # Executa o comando nmap com monitoramento de progresso
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            # Executa o comando nmap com timeout
+            timeout_value = self._config_manager.get_timeout('discovery')
+            debug(f"Timeout configurado para scan de descoberta: {timeout_value}s")
             
-            # Feedback visual enquanto o scan está em andamento
-            if not self._quiet_mode:
-                with tqdm(total=10, desc="Descobrindo hosts na rede") as pbar:
-                    while process.poll() is None:
-                        pbar.update(1)
-                        time.sleep(0.5)
-                        if pbar.n >= pbar.total:
-                            pbar.reset()
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_value
+            )
             
-            # Aguarda a conclusão e obtém a saída
-            stdout, stderr = process.communicate()
-            
-            if process.returncode != 0:
-                error(f"Erro ao executar nmap: {stderr}")
-                raise ScannerError(f"Nmap retornou código de erro {process.returncode}: {stderr}")
+            if result.returncode != 0:
+                error(f"Erro ao executar nmap: {result.stderr}")
+                raise ScannerError(f"Nmap retornou código de erro {result.returncode}: {result.stderr}")
             
             # Parseia a saída para encontrar hosts
-            hosts = self._parse_nmap_output(stdout)
+            hosts = self._parse_nmap_output(result.stdout)
             
-            if not self._quiet_mode:
-                debug(f"Descobertos {len(hosts)} hosts ativos na rede {network_range}")
+            debug(f"Descobertos {len(hosts)} hosts ativos na rede {network_range}")
             
             return hosts
             
         except subprocess.TimeoutExpired:
             error(f"Timeout ao executar scan de descoberta na rede {network_range}")
-            raise ScannerError(f"Timeout durante scan de descoberta")
+            raise ScannerError(f"Timeout durante scan de descoberta. O scan excedeu {timeout_value}s.")
         except Exception as e:
             error(f"Erro durante scan de descoberta: {str(e)}")
             raise ScannerError(f"Erro durante scan de descoberta: {str(e)}")

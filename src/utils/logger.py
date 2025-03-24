@@ -13,6 +13,7 @@ import os
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pythonjsonlogger import jsonlogger
+import yaml
 
 class ESKLogger:
     _instance = None
@@ -101,6 +102,28 @@ class ESKLogger:
     def get_logger(self):
         """Retorna a instância do logger"""
         return self.logger
+
+# Função para carregar a configuração do arquivo config.yaml
+def load_config():
+    with open('config.yaml', 'r') as file:
+        return yaml.safe_load(file)
+
+# Carregar a configuração
+config = load_config()
+
+# Definir o nível de log com base no ambiente
+environment = config.get('environment', 'production')
+log_level = config.get('log_level', {}).get(environment, 'INFO').upper()
+
+# Configurar o logger
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("logs/esk_nmap.log"),
+        logging.StreamHandler()
+    ]
+)
 
 # Criar instância global do logger
 logger = ESKLogger().get_logger()

@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Dict, Optional, List
 from prettytable import PrettyTable
 from ..core.scanner import HostInfo, NetworkScanner
-from ..core.history_manager import HistoryManager  # Nova importação
+from ..core.history_manager import HistoryManager, ComparisonFormat
 from ..utils.config_manager import ConfigManager
 from ..utils.logger import info, error, debug, warning
 from ..reports.report_generator import ReportFormat
@@ -91,6 +91,14 @@ class CLI:
         history_parser = subparsers.add_parser('history', help='Gerenciar histórico')
         history_parser.add_argument("--limit", type=int, default=10,
                                   help="Número máximo de registros")
+        history_parser.add_argument("--compare", "-c", nargs=2, type=int, metavar=('ID1', 'ID2'),
+                                  help="Comparar dois scans pelo ID")
+        history_parser.add_argument("--output", "-o", 
+                                  help="Arquivo para salvar a comparação")
+        history_parser.add_argument("--format", "-f", 
+                                  choices=["text", "json", "csv", "xml", "html"],
+                                  default="text",
+                                  help="Formato do relatório de comparação")
         history_parser.set_defaults(func=lambda args: CLI().history(args))
 
         # Comando report
@@ -271,7 +279,7 @@ class CLI:
         
         self.display_hosts_table(scan['hosts'])
     
-    def display_scan_comparison(self, scan_id1: int, scan_id2: int, output: Optional[str] = None) -> None:
+    def display_scan_comparison(self, scan_id1: int, scan_id2: int, output: Optional[str] = None, format_type: str = "text") -> None:
         """Exibe a comparação entre dois scans"""
         comparison = self.history_manager.compare_scans(scan_id1, scan_id2)
         
@@ -313,13 +321,10 @@ class CLI:
                     print("  Portas fechadas:", ", ".join(changes['closed_ports']))
         
         if output:
-            import json
-            try:
-                with open(output, 'w', encoding='utf-8') as f:
-                    json.dump(comparison, f, indent=4)
-                print(f"\nComparação exportada para {output}")
-            except Exception as e:
-                print(f"\nErro ao exportar comparação: {str(e)}")
+            if self.history_manager.export_comparison_report(comparison, output, format_type):
+                print(f"\nComparação exportada para {output} no formato {format_type}")
+            else:
+                print(f"\nErro ao exportar comparação para {output}")
     
     def delete_scan(self, scan_id: int) -> None:
         """Exclui um scan do histórico"""
@@ -431,6 +436,14 @@ class CLI:
 
     def history(self, args):
         """Executa o comando history"""
+        # Verifica se é uma solicitação de comparação
+        if hasattr(args, 'compare') and args.compare:
+            scan_id1, scan_id2 = args.compare
+            output = args.output if hasattr(args, 'output') else None
+            format_type = args.format if hasattr(args, 'format') else "text"
+            self.display_scan_comparison(scan_id1, scan_id2, output, format_type)
+            return
+
         # Obtém o histórico limitado ao número especificado
         history = self.history_manager.get_scan_list(limit=args.limit)
         
@@ -455,6 +468,8 @@ class CLI:
 
         print("\nHistórico de Scans:")
         print(table)
+        print("\nDica: Use --compare ID1 ID2 para comparar dois scans")
+        print("      Use --output arquivo --format [text|json|csv|xml|html] para exportar a comparação")
 
     def report(self, args):
         """Executa o comando report"""
