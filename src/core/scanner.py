@@ -147,6 +147,16 @@ class NetworkScanner:
             warning(f"Perfil '{profile_name}' não encontrado. Usando perfil 'basic' como fallback.")
             self._scan_profile = "basic"
     
+    def set_source_port(self, port: int) -> None:
+        """
+        Define uma porta de origem específica para os pacotes enviados pelo nmap.
+        Útil para bypassar firewalls que permitem tráfego de portas específicas.
+        
+        Args:
+            port (int): Número da porta de origem a ser usada
+        """
+        self._source_port = port if port and port > 0 and port < 65536 else None
+    
     def set_quiet_mode(self, quiet_mode: bool) -> None:
         """
         Define o modo silencioso.
@@ -239,6 +249,15 @@ class NetworkScanner:
         """
         hosts = {}
         
+        # Log da saída completa do nmap para diagnóstico
+        debug(f"Analisando saída do nmap: {output[:500]}{'...' if len(output) > 500 else ''}")
+        
+        # Verifica se há menção a portas na saída
+        if "PORT" in output and "STATE" in output and "SERVICE" in output:
+            debug("Saída do nmap contém informações sobre portas")
+        else:
+            debug("Saída do nmap NÃO contém informações sobre portas")
+        
         # Encontra os blocos de relatório para cada host
         host_blocks = re.finditer(r'Nmap scan report for (\S+)(?:\s*\(([^\)]+)\))?\n(.*?)(?=Nmap scan report for|\Z)', 
                                   output, re.DOTALL)
@@ -247,6 +266,9 @@ class NetworkScanner:
             hostname_or_ip = match.group(1)
             possible_ip = match.group(2)
             host_data = match.group(3)
+            
+            # Log do bloco de dados do host
+            debug(f"Bloco de dados para host {hostname_or_ip}: {host_data[:300]}")
             
             # Determina o IP e o hostname
             if possible_ip and re.match(r'\d+\.\d+\.\d+\.\d+', possible_ip):
@@ -267,38 +289,55 @@ class NetworkScanner:
             # Extrai informações de portas, se disponíveis
             ports = []
             
-            # Procura a linha PORT STATE SERVICE VERSION que indica o início da lista de portas
-            port_data = re.search(r'PORT\s+STATE\s+SERVICE(?:\s+VERSION)?\n(.*?)(?=\n\n|\Z)', host_data, re.DOTALL)
-            if port_data:
+            # Verifica se há menção a portas neste host específico
+            if "PORT" in host_data and "STATE" in host_data:
+                debug(f"Host {ip} tem informações de portas")
+            else:
+                debug(f"Host {ip} NÃO tem informações de portas")
+            
+            # Ajustando o regex para capturar o bloco de portas de forma mais abrangente
+            port_data_match = re.search(r'PORT\s+STATE\s+SERVICE.*?\n(.*?)(?=\n\n|\Z|MAC Address|Not shown)', host_data, re.DOTALL | re.IGNORECASE)
+            if port_data_match:
+                port_data = port_data_match.group(1)
+                debug(f"Bloco de portas capturado: {port_data}")
+            else:
+                debug(f"Nenhum bloco de portas encontrado para o host {ip}")
+                port_data = ""
+
+            if port_data.strip():
                 # Processa cada linha de porta individualmente
-                port_lines = port_data.group(1).strip().split('\n')
+                port_lines = port_data.strip().split('\n')
                 for line in port_lines:
-                    if not line.strip():
+                    line = line.strip()
+                    if not line:
                         continue
-                        
-                    # Separa os campos da linha
-                    parts = line.split(None, 3)  # Divide em no máximo 4 partes
-                    if len(parts) < 3:
-                        continue
-                        
-                    # Processa o número da porta e protocolo
-                    port_proto = parts[0].split('/')
-                    if len(port_proto) != 2:
-                        continue
-                        
-                    port = int(port_proto[0])
-                    protocol = port_proto[1]
-                    state = parts[1]
-                    service = parts[2]
-                    version = parts[3] if len(parts) > 3 else ""
                     
-                    ports.append({
-                        'port': port,
-                        'protocol': protocol,
-                        'state': state,
-                        'service': service,
-                        'version': version.strip()
-                    })
+                    debug(f"Processando linha de porta: {line}")
+                    
+                    # Regex para capturar porta, protocolo, estado, serviço e versão (se disponível)
+                    port_match = re.match(r'^(\d+)/(\w+)\s+(\w+)\s+(\S+)(?:\s+(.*))?', line)
+                    if port_match:
+                        debug(f"Linha correspondeu ao padrão: {port_match.groups()}")
+                        port = int(port_match.group(1))
+                        protocol = port_match.group(2)
+                        state = port_match.group(3)
+                        service = port_match.group(4)
+                        version = port_match.group(5) if port_match.group(5) else ""
+                        
+                        # Adiciona porta se estiver aberta
+                        if state.lower() == 'open':
+                            debug(f"Porta aberta encontrada: {port}/{protocol} ({service})")
+                            ports.append({
+                                'port': port,
+                                'protocol': protocol,
+                                'state': state,
+                                'service': service,
+                                'version': version.strip()
+                            })
+                        else:
+                            debug(f"Porta ignorada por não estar aberta: {port}/{protocol} ({state})")
+                    else:
+                        debug(f"Linha não correspondeu ao padrão esperado: {line}")
             
             # Cria o objeto HostInfo
             hosts[ip] = HostInfo(
@@ -309,6 +348,9 @@ class NetworkScanner:
                 ports=ports,
                 is_up=is_up
             )
+            
+            # Log do número de portas abertas encontradas para {ip}
+            debug(f"Total de portas abertas encontradas para {ip}: {len(ports)}")
         
         return hosts
     
@@ -380,11 +422,40 @@ class NetworkScanner:
         if not host_ips:
             return {}
         
-        # Prepara o comando nmap com as opções do perfil
-        cmd = [self._nmap_path] + self._get_scan_options()
+        # Simplificando a construção do comando para ser mais parecido com a execução direta
+        # Apenas usamos as opções essenciais e deixamos o nmap decidir o melhor método de scan
+        cmd = [self._nmap_path]
+        
+        # Adicionamos apenas as opções principais do perfil
+        profile_config = self._config_manager.get_scan_profile(self._scan_profile)
+        
+        # Timing (-T4)
+        timing = profile_config.get('timing', 4)
+        cmd.append(f"-T{timing}")
+        
+        # Fast scan (-F) para as 100 portas mais comuns
+        cmd.append("-F")
+        
+        # Removemos a opção -sT para usar a melhor opção de scan disponível
+        # O nmap usará -sS (SYN scan) se tiver permissões, ou -sT (TCP Connect) se não tiver
+        
+        # Adicionamos --reason para mostrar o motivo de cada porta estar aberta ou fechada
+        cmd.append("--reason")
+        
+        # Adicionamos a opção source-port se estiver no perfil
+        profile_options = profile_config.get('options', [])
+        if "--source-port" in " ".join(profile_options):
+            # Extraímos o valor da porta de origem
+            source_port_index = profile_options.index("--source-port")
+            if source_port_index < len(profile_options) - 1:
+                cmd.append("--source-port")
+                cmd.append(profile_options[source_port_index + 1])
+        
+        # Adicionamos os hosts a escanear
         cmd.extend(host_ips)
         
         debug(f"Escaneando batch de {len(host_ips)} hosts: {', '.join(host_ips)}")
+        debug(f"Comando completo: {' '.join(cmd)}")
         
         # Executa com retry automático em caso de falha
         retry_config = self._config_manager.get_retry_config()
@@ -403,13 +474,25 @@ class NetworkScanner:
                 
                 if result.returncode != 0:
                     warning(f"nmap retornou código de erro {result.returncode} no batch {host_ips}")
+                    # Log mais detalhado para entender o erro específico
+                    error_msg = result.stderr.strip() if result.stderr else "Sem mensagem de erro"
+                    debug(f"Erro do nmap: {error_msg}")
+                    
                     if attempt < max_attempts:
                         debug(f"Tentativa {attempt}/{max_attempts} falhou. Tentando novamente em {delay}s...")
                         time.sleep(delay)
                         continue
+                    else:
+                        # Se todas as tentativas falharam, tentamos processar a saída mesmo assim,
+                        # pois o nmap pode ter retornado resultados parciais
+                        warning("Processando resultados parciais disponíveis")
                 
-                # Sucesso - parseia a saída
-                return self._parse_nmap_output(result.stdout)
+                # Sucesso ou falha final - parseia a saída 
+                parsed_results = self._parse_nmap_output(result.stdout)
+                if not parsed_results and result.stdout:
+                    debug(f"Saída do nmap não contém hosts: {result.stdout[:500]}...")
+                
+                return parsed_results
                 
             except subprocess.TimeoutExpired:
                 warning(f"Timeout ao escanear batch {host_ips}")

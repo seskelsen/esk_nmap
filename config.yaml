@@ -38,8 +38,16 @@ scan_profiles:
   discovery:
     name: Scan de Descoberta
     description: Scan para encontrar hostnames e portas comuns
-    options: ["-T4", "-F"]  # -F para scan rápido de portas mais comuns
-    ports: "21,22,23,25,53,80,443,3389"
+    options: ["-T4", "-F"]  # Removido --source-port 53 para melhorar a detecção de portas
+    ports: ""  # Deixamos a lista de portas vazia para usar o padrão do nmap com -F
+    timing: 4
+    
+  # Novo perfil que mantém a opção source-port para contornar firewalls específicos
+  bypass:
+    name: Scan Bypass Firewall
+    description: Scan tentando contornar firewalls usando porta de origem específica
+    options: ["-T4", "-F", "--source-port", "53"]  # Usa --source-port 53 para tentar passar por firewalls
+    ports: ""  # Deixamos a lista de portas vazia para usar o padrão do nmap com -F
     timing: 4
 
 timeouts:

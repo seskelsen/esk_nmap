@@ -136,3 +136,22 @@ class ConfigManager:
             'include_closed_ports': False,
             'group_by_port': True
         })
+        
+    def is_running_as_root(self) -> bool:
+        """
+        Verifica se o programa está sendo executado com privilégios de administrador/root.
+        
+        Returns:
+            bool: True se estiver rodando como administrador/root, False caso contrário
+        """
+        try:
+            # No Windows
+            if os.name == 'nt':
+                import ctypes
+                return ctypes.windll.shell32.IsUserAnAdmin() != 0
+            # No Linux/Unix/MacOS
+            else:
+                return os.geteuid() == 0
+        except:
+            # Se ocorrer qualquer erro, assume que não tem privilégios
+            return False

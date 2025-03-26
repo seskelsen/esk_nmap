@@ -28,8 +28,9 @@ ESK NMAP é uma ferramenta avançada de varredura de rede baseada no Nmap, desen
 **Versão atual**: 0.2.1 (24/03/2025)
 
 ### Cobertura de Testes
+
 - ConfigManager: 98%
-- Scanner: 85% 
+- Scanner: 85%
 - HistoryManager: 90%
 - ReportGenerator: 93%
 - CLI: 80%
@@ -61,49 +62,58 @@ ESK NMAP é uma ferramenta avançada de varredura de rede baseada no Nmap, desen
 ### Passos para Instalação
 
 1. Clone o repositório:
+
 ```bash
 git clone https://github.com/eskelsecurity/esk_nmap.git
 cd esk_nmap
 ```
 
 2. Instale as dependências:
+
 ```bash
 python -m pip install -r requirements.txt
 ```
 
 3. Verifique a instalação:
+
 ```bash
 python esk_nmap.py --version
 ```
 
 ## 🚀 Uso Rápido
 
-### Scan básico de descoberta:
+### Scan básico de descoberta
+
 ```bash
 python esk_nmap.py scan --network 192.168.1.0/24
 ```
 
-### Scan com detecção de hostnames e portas:
+### Scan com detecção de hostnames e portas
+
 ```bash
 python esk_nmap.py scan --network 192.168.1.0/24 --profile discovery
 ```
 
-### Scan com detecção de serviços e versões:
+### Scan com detecção de serviços e versões
+
 ```bash
 python esk_nmap.py scan --network 192.168.1.0/24 --profile version
 ```
 
-### Scan completo com scripts NSE e detecção de SO:
+### Scan completo com scripts NSE e detecção de SO
+
 ```bash
 python esk_nmap.py scan --network 192.168.1.0/24 --profile complete
 ```
 
-### Exportar resultados para JSON:
+### Exportar resultados para JSON
+
 ```bash
 python esk_nmap.py scan --network 192.168.1.0/24 --output resultado.json --format json
 ```
 
-### Comparar dois scans anteriores:
+### Comparar dois scans anteriores
+
 ```bash
 python esk_nmap.py history compare 1 2 --format html --output comparacao.html
 ```
@@ -126,6 +136,7 @@ O ESK NMAP inclui vários perfis pré-configurados para diferentes necessidades:
 O arquivo `config.yaml` permite personalizar completamente o comportamento da ferramenta:
 
 ### Perfis de Scan
+
 ```yaml
 scan_profiles:
   basic:
@@ -143,6 +154,7 @@ scan_profiles:
 ```
 
 ### Timeouts
+
 ```yaml
 timeouts:
   discovery: 300  # segundos
@@ -151,6 +163,7 @@ timeouts:
 ```
 
 ### Retry
+
 ```yaml
 retry:
   max_attempts: 3
@@ -158,6 +171,7 @@ retry:
 ```
 
 ### Logging
+
 ```yaml
 environment: development  # ou production
 log_level:
@@ -170,6 +184,7 @@ log_level:
 ### Preparando o Ambiente
 
 1. Crie um ambiente virtual:
+
 ```bash
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
@@ -177,6 +192,7 @@ source venv/bin/activate  # Linux/Mac
 ```
 
 2. Instale dependências de desenvolvimento:
+
 ```bash
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
@@ -244,9 +260,9 @@ Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE](LICE
 
 Para reportar bugs ou solicitar funcionalidades:
 
-1. Verifique se já não existe uma issue similar
-2. Crie uma issue com detalhes sobre a situação
-3. Inclua logs e passos de reprodução
+1. Verifique se já não existe uma issue similar no repositório oficial no GitHub.
+2. Crie uma issue com detalhes sobre a situação no repositório [Eskel Cybersecurity](https://github.com/eskelsecurity/esk_nmap).
+3. Inclua logs e passos de reprodução detalhados.
 
 ---
 

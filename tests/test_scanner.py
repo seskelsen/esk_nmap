@@ -483,3 +483,66 @@ PORT   STATE SERVICE
         assert "192.168.1.1" in results
         assert results["192.168.1.1"].is_up == True
         assert len(results["192.168.1.1"].ports) == 2
+        
+    def test_set_source_port(self, scanner):
+        """Testa o método set_source_port"""
+        # Verifica o valor padrão
+        assert not hasattr(scanner, '_source_port') or scanner._source_port is None
+        
+        # Testa definindo uma porta válida
+        scanner.set_source_port(53)
+        assert scanner._source_port == 53
+        
+        # Testa com valor inválido
+        scanner.set_source_port(0)
+        assert scanner._source_port is None
+        
+        scanner.set_source_port(65536)  # Porta muito alta
+        assert scanner._source_port is None
+        
+        scanner.set_source_port(None)
+        assert scanner._source_port is None
+        
+        # Configura uma porta válida novamente
+        scanner.set_source_port(443)
+        assert scanner._source_port == 443
+    
+    @patch('subprocess.run')
+    def test_source_port_in_command(self, mock_run, scanner):
+        """Testa se a porta de origem é incluída no comando nmap"""
+        # Configura a saída do comando nmap
+        mock_run.return_value = MagicMock(
+            stdout="""
+Nmap scan report for 192.168.1.1
+Host is up.
+PORT   STATE SERVICE
+22/tcp open  ssh
+            """,
+            stderr="",
+            returncode=0
+        )
+        
+        # Configure uma porta de origem
+        scanner.set_source_port(53)
+        
+        # Execute o scan detalhado
+        initial_hosts = {
+            "192.168.1.1": HostInfo(ip="192.168.1.1", is_up=True)
+        }
+        
+        # Patch o método _scan_host_batch para verificar se a porta de origem é incluída
+        with patch.object(scanner, '_scan_host_batch', wraps=scanner._scan_host_batch) as wrapped_method:
+            # Execute o scan
+            scanner.detailed_scan(initial_hosts)
+            
+            # Verifique se o método foi chamado
+            wrapped_method.assert_called_once()
+            
+            # Verifique se a porta de origem está no comando
+            mock_run.assert_called_once()
+            args, kwargs = mock_run.call_args
+            cmd = args[0]
+            assert "--source-port" in cmd
+            source_port_index = cmd.index("--source-port")
+            assert source_port_index + 1 < len(cmd)
+            assert cmd[source_port_index + 1] == "53"

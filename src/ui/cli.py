@@ -85,6 +85,8 @@ class CLI:
                                help="Número de hosts por lote")
         scan_parser.add_argument("--max-threads", "-t", type=int, default=5,
                                help="Número máximo de threads")
+        scan_parser.add_argument("--source-port", type=int,
+                               help="Especifica a porta de origem para pacotes enviados (útil para bypassar firewalls)")
         scan_parser.set_defaults(func=lambda args: CLI().scan(args))
 
         # Comando history
@@ -408,6 +410,12 @@ class CLI:
         if not args.network and not args.ip:
             print("Erro: É necessário especificar uma rede (--network) ou um IP (--ip)")
             return
+
+        # Configura a porta de origem se especificada
+        if hasattr(args, 'source_port') and args.source_port:
+            self.scanner.set_source_port(args.source_port)
+            if not args.quiet:
+                print(f"Usando porta de origem: {args.source_port}")
 
         if args.network:
             # Scan de rede

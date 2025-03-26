@@ -41,6 +41,9 @@ esk_nmap_report_*.csv
 esk_nmap_report_*.xml
 esk_nmap_report_modelo.text
 
+# Ignoring generated report.json file
+report.json
+
 # Arquivos específicos do Windows
 Thumbs.db
 desktop.ini
