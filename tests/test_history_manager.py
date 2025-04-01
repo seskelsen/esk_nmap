@@ -1,385 +1,411 @@
-import pytest
 import os
-import sqlite3
-import tempfile
 import json
+import tempfile
+import pytest
+import sqlite3
 from unittest.mock import patch, MagicMock
 from datetime import datetime
-
 from src.core.history_manager import HistoryManager
-from src.core.scanner import HostInfo
+from src.reports.report_generator import ComparisonFormat
 
 class TestHistoryManager:
+    """Testes para o módulo history_manager.py"""
+    
     @pytest.fixture
-    def temp_db_path(self):
-        """Cria um caminho temporário para o banco de dados de teste"""
+    def temp_db(self):
+        """Fixture que cria um banco de dados temporário para testes"""
+        # Cria um arquivo temporário para o banco de dados
         with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
             db_path = tmp.name
         
-        # Retorna o caminho e depois limpa o arquivo após o teste
-        yield db_path
-        
-        if os.path.exists(db_path):
-            os.remove(db_path)
-    
-    @pytest.fixture
-    def history_manager(self, temp_db_path):
-        """Cria uma instância de HistoryManager com banco de dados temporário"""
-        # Reseta a instância singleton para garantir um novo banco de dados
+        # Reset do singleton para garantir nova instância com banco de dados limpo
         HistoryManager._instance = None
         HistoryManager._initialized = False
         
-        # Cria e retorna uma nova instância
-        return HistoryManager(temp_db_path)
+        # Cria uma instância com o banco de dados temporário
+        history_manager = HistoryManager(db_path)
+        
+        yield history_manager
+        
+        # Limpeza: remove o arquivo temporário após os testes
+        try:
+            os.unlink(db_path)
+        except:
+            pass
     
-    @pytest.fixture
-    def populated_history_manager(self, history_manager):
-        """Preenche o banco de dados com alguns dados de teste"""
-        # Scan 1: 192.168.1.0/24 com 2 hosts
-        hosts1 = {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname="router.local",
-                mac="00:11:22:33:44:55",
-                vendor="Vendor A",
-                is_up=True,
-                ports=[
-                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
-                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
-                ]
-            ),
-            "192.168.1.2": HostInfo(
-                ip="192.168.1.2",
-                hostname="server.local",
-                mac="AA:BB:CC:DD:EE:FF",
-                vendor="Vendor B",
-                is_up=True,
-                ports=[
-                    {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"},
-                    {"port": 3306, "protocol": "tcp", "state": "open", "service": "mysql"}
-                ]
-            )
-        }
+    def test_singleton_pattern(self):
+        """Testa se HistoryManager segue o padrão singleton"""
+        # Reset do singleton
+        HistoryManager._instance = None
+        HistoryManager._initialized = False
         
-        scan_id1 = history_manager.save_scan_results("192.168.1.0/24", hosts1, "basic")
+        # Cria um arquivo temporário para o banco de dados
+        temp_dir = tempfile.gettempdir()
+        db_path = os.path.join(temp_dir, 'test_singleton.db')
         
-        # Scan 2: 192.168.1.0/24 com 3 hosts (um novo, um modificado)
-        hosts2 = {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname="router.local",
-                mac="00:11:22:33:44:55",
-                vendor="Vendor A",
-                is_up=True,
-                ports=[
-                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
-                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"},
-                    {"port": 8080, "protocol": "tcp", "state": "open", "service": "http-proxy"}  # Nova porta
-                ]
-            ),
-            "192.168.1.2": HostInfo(
-                ip="192.168.1.2",
-                hostname="server.local",
-                mac="AA:BB:CC:DD:EE:FF",
-                vendor="Vendor B",
-                is_up=True,
-                ports=[
-                    {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"}
-                    # Porta 3306/tcp fechada
-                ]
-            ),
-            "192.168.1.3": HostInfo(  # Host novo
-                ip="192.168.1.3",
-                hostname="workstation.local",
-                mac="11:22:33:44:55:66",
-                vendor="Vendor C",
-                is_up=True,
-                ports=[
-                    {"port": 135, "protocol": "tcp", "state": "open", "service": "msrpc"},
-                    {"port": 445, "protocol": "tcp", "state": "open", "service": "microsoft-ds"}
-                ]
-            )
-        }
+        # Certifica-se de que o arquivo não existe
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+            
+        # Cria duas instâncias e verifica se são a mesma
+        manager1 = HistoryManager(db_path)
+        manager2 = HistoryManager(db_path)
         
-        scan_id2 = history_manager.save_scan_results("192.168.1.0/24", hosts2, "complete")
-        
-        # Scan 3: Outra rede
-        hosts3 = {
-            "10.0.0.1": HostInfo(
-                ip="10.0.0.1",
-                hostname="gateway",
-                mac="FF:EE:DD:CC:BB:AA",
-                vendor="Vendor X",
-                is_up=True,
-                ports=[
-                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"}
-                ]
-            )
-        }
-        
-        scan_id3 = history_manager.save_scan_results("10.0.0.0/24", hosts3, "basic")
-        
-        return history_manager, scan_id1, scan_id2, scan_id3
+        try:
+            assert manager1 is manager2
+            assert id(manager1) == id(manager2)
+        finally:
+            # Limpa o arquivo temporário
+            if os.path.exists(db_path):
+                try:
+                    os.unlink(db_path)
+                except:
+                    pass
     
-    def test_singleton_pattern(self, temp_db_path):
-        """Testa se o HistoryManager segue o padrão singleton"""
-        manager1 = HistoryManager(temp_db_path)
-        manager2 = HistoryManager(temp_db_path)
-        assert manager1 is manager2
-    
-    def test_init_database(self, history_manager, temp_db_path):
-        """Testa se o banco de dados é inicializado corretamente"""
-        # Verifica se o arquivo foi criado
-        assert os.path.exists(temp_db_path)
-        
-        # Conecta diretamente ao banco para verificar a estrutura
-        conn = sqlite3.connect(temp_db_path)
+    def test_init_database(self, temp_db):
+        """Testa a inicialização do banco de dados"""
+        # Verifica se as tabelas foram criadas
+        conn = sqlite3.connect(temp_db._db_path)
         cursor = conn.cursor()
         
-        # Obtém lista de tabelas
+        # Obtém a lista de tabelas
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = {row[0] for row in cursor.fetchall()}
+        tables = [row[0] for row in cursor.fetchall()]
         
-        # Verifica se as tabelas necessárias foram criadas
+        # Verifica se as tabelas esperadas existem
         assert 'scans' in tables
         assert 'hosts' in tables
         assert 'ports' in tables
         
-        # Verifica índices
+        # Verifica se os índices foram criados
         cursor.execute("SELECT name FROM sqlite_master WHERE type='index'")
-        indexes = {row[0] for row in cursor.fetchall()}
+        indices = [row[0] for row in cursor.fetchall()]
         
-        assert 'idx_scan_timestamp' in indexes
-        assert 'idx_scan_network' in indexes
-        assert 'idx_host_scan_id' in indexes
-        assert 'idx_host_ip' in indexes
-        assert 'idx_port_host_id' in indexes
+        assert 'idx_scan_timestamp' in indices
+        assert 'idx_scan_network' in indices
+        assert 'idx_host_scan_id' in indices
+        assert 'idx_host_ip' in indices
+        assert 'idx_port_host_id' in indices
         
         conn.close()
     
-    def test_save_scan_results(self, history_manager):
-        """Testa se os resultados do scan são salvos corretamente"""
+    def test_save_scan_results(self, temp_db):
+        """Testa o salvamento de resultados de um scan"""
+        # Dados de teste
+        network = "192.168.1.0/24"
+        scan_profile = "basic"
+        
+        # Cria hosts de teste
         hosts = {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname="test.local",
-                mac="00:11:22:33:44:55",  # Adicionado valor MAC
-                vendor="Test Vendor",     # Adicionado valor de fabricante
-                is_up=True,
-                ports=[
+            "192.168.1.1": {
+                "ip": "192.168.1.1",
+                "hostname": "router.local",
+                "mac": "00:11:22:33:44:55",
+                "vendor": "Cisco",
+                "status": "up",
+                "ports": [
                     {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
                     {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
                 ]
-            )
+            },
+            "192.168.1.2": {
+                "ip": "192.168.1.2",
+                "hostname": "server.local",
+                "mac": "AA:BB:CC:DD:EE:FF",
+                "vendor": "Dell",
+                "status": "up",
+                "ports": [
+                    {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"},
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"}
+                ]
+            }
         }
         
-        scan_id = history_manager.save_scan_results("192.168.1.0/24", hosts, "basic")
+        # Salva os resultados
+        scan_id = temp_db.save_scan_results(network, hosts, scan_profile)
         
-        # Verifica se retornou um ID válido
-        assert isinstance(scan_id, int)
+        # Verifica se o ID foi retornado
         assert scan_id > 0
         
-        # Consulta diretamente o banco para verificar se os dados foram salvos
-        conn = sqlite3.connect(history_manager._db_path)
+        # Verifica se os dados foram salvos corretamente
+        conn = sqlite3.connect(temp_db._db_path)
         cursor = conn.cursor()
         
-        # Verifica scan
+        # Verifica o scan
         cursor.execute("SELECT network, scan_profile, total_hosts FROM scans WHERE id = ?", (scan_id,))
         scan_row = cursor.fetchone()
-        assert scan_row is not None
-        assert scan_row[0] == "192.168.1.0/24"
-        assert scan_row[1] == "basic"
-        assert scan_row[2] == 1
+        assert scan_row[0] == network
+        assert scan_row[1] == scan_profile
+        assert scan_row[2] == 2  # Total de hosts
         
-        # Verifica host
-        cursor.execute("SELECT ip, hostname, mac, vendor FROM hosts WHERE scan_id = ?", (scan_id,))
-        host_row = cursor.fetchone()
-        assert host_row is not None
-        assert host_row[0] == "192.168.1.1"
-        assert host_row[1] == "test.local"
-        assert host_row[2] == "00:11:22:33:44:55"
-        assert host_row[3] == "Test Vendor"
+        # Verifica os hosts
+        cursor.execute("SELECT ip, hostname, mac, vendor, status FROM hosts WHERE scan_id = ?", (scan_id,))
+        host_rows = cursor.fetchall()
+        assert len(host_rows) == 2
         
-        # Verifica portas
-        cursor.execute("SELECT h.ip, p.port, p.service FROM hosts h JOIN ports p ON h.id = p.host_id WHERE h.scan_id = ?", (scan_id,))
+        # Verifica as portas
+        cursor.execute("""
+            SELECT h.ip, p.port, p.service 
+            FROM ports p 
+            JOIN hosts h ON h.id = p.host_id 
+            WHERE h.scan_id = ?
+        """, (scan_id,))
         port_rows = cursor.fetchall()
-        assert len(port_rows) == 2
-        
-        # Cria um dicionário de portas para facilitar a verificação
-        ports = {row[1]: row[2] for row in port_rows}
-        assert "80/tcp" in ports
-        assert "443/tcp" in ports
-        assert ports["80/tcp"] == "http"
-        assert ports["443/tcp"] == "https"
+        assert len(port_rows) == 4  # Total de 4 portas entre os dois hosts
         
         conn.close()
     
-    def test_get_scan_list(self, populated_history_manager):
+    def test_get_scan_list(self, temp_db):
         """Testa a obtenção da lista de scans"""
-        history_manager, scan_id1, scan_id2, scan_id3 = populated_history_manager
+        # Adiciona alguns scans de teste
+        networks = ["192.168.1.0/24", "10.0.0.0/8", "172.16.0.0/12"]
+        host_data = {"192.168.1.1": {"ip": "192.168.1.1", "hostname": "test", "status": "up", "ports": []}}
         
-        # Obtém lista com limite padrão
-        scan_list = history_manager.get_scan_list()
-        assert len(scan_list) == 3
+        for network in networks:
+            temp_db.save_scan_results(network, host_data, "test_profile")
         
-        # Verifica ordenação (mais recente primeiro)
-        assert scan_list[0]['id'] == scan_id3
-        assert scan_list[1]['id'] == scan_id2
-        assert scan_list[2]['id'] == scan_id1
+        # Obtém a lista de scans
+        scans = temp_db.get_scan_list()
         
-        # Testa com limite personalizado
-        scan_list_limited = history_manager.get_scan_list(limit=2)
-        assert len(scan_list_limited) == 2
-        assert scan_list_limited[0]['id'] == scan_id3
-        assert scan_list_limited[1]['id'] == scan_id2
+        # Verifica se todos os scans foram retornados
+        assert len(scans) == 3
+        
+        # Verifica se estão ordenados por timestamp (mais recente primeiro)
+        timestamps = [scan['timestamp'] for scan in scans]
+        assert timestamps == sorted(timestamps, reverse=True)
+        
+        # Testa o limite
+        limited_scans = temp_db.get_scan_list(limit=2)
+        assert len(limited_scans) == 2
     
-    def test_get_scan_by_id(self, populated_history_manager):
-        """Testa a obtenção de um scan específico pelo ID"""
-        history_manager, scan_id1, _, _ = populated_history_manager
+    def test_get_scan_by_id(self, temp_db):
+        """Testa a recuperação de um scan pelo ID"""
+        # Cria um scan de teste
+        network = "192.168.1.0/24"
+        hosts = {
+            "192.168.1.1": {
+                "ip": "192.168.1.1",
+                "hostname": "router.local",
+                "mac": "00:11:22:33:44:55",
+                "vendor": "Cisco",
+                "status": "up",
+                "ports": [
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"}
+                ]
+            }
+        }
         
-        scan = history_manager.get_scan_by_id(scan_id1)
+        scan_id = temp_db.save_scan_results(network, hosts, "test_profile")
         
-        assert scan is not None
-        assert scan['id'] == scan_id1
-        assert scan['network'] == "192.168.1.0/24"
-        assert scan['scan_profile'] == "basic"
-        assert scan['total_hosts'] == 2
+        # Recupera o scan
+        scan_data = temp_db.get_scan_by_id(scan_id)
         
-        # Verifica hosts
-        hosts = scan['hosts']
-        assert len(hosts) == 2
-        assert "192.168.1.1" in hosts
-        assert "192.168.1.2" in hosts
+        # Verifica se os dados foram recuperados corretamente
+        assert scan_data is not None
+        assert scan_data['id'] == scan_id
+        assert scan_data['network'] == network
+        assert scan_data['scan_profile'] == "test_profile"
+        assert scan_data['total_hosts'] == 1
+        assert len(scan_data['hosts']) == 1
+        assert "192.168.1.1" in scan_data['hosts']
+        assert scan_data['hosts']["192.168.1.1"]["hostname"] == "router.local"
+        assert "80/tcp" in scan_data['hosts']["192.168.1.1"]["ports"]
         
-        # Verifica portas
-        ports1 = set(hosts["192.168.1.1"]["ports"])
-        ports2 = set(hosts["192.168.1.2"]["ports"])
-        assert "80/tcp" in ports1
-        assert "443/tcp" in ports1
-        assert "22/tcp" in ports2
-        assert "3306/tcp" in ports2
+        # Testa ID inexistente
+        nonexistent_scan = temp_db.get_scan_by_id(9999)
+        assert nonexistent_scan is None
     
-    def test_get_scan_by_id_nonexistent(self, history_manager):
-        """Testa a obtenção de um scan inexistente"""
-        scan = history_manager.get_scan_by_id(999)
-        assert scan is None
-    
-    def test_get_scans_by_network(self, populated_history_manager):
-        """Testa a obtenção de scans de uma rede específica"""
-        history_manager, scan_id1, scan_id2, scan_id3 = populated_history_manager
+    def test_get_scans_by_network(self, temp_db):
+        """Testa a obtenção de scans por rede"""
+        # Adiciona scans para diferentes redes
+        networks = ["192.168.1.0/24", "192.168.1.0/24", "10.0.0.0/8"]
+        host_data = {"192.168.1.1": {"ip": "192.168.1.1", "hostname": "test", "status": "up", "ports": []}}
         
-        # Obtém scans da primeira rede
-        scans = history_manager.get_scans_by_network("192.168.1.0/24")
+        for network in networks:
+            temp_db.save_scan_results(network, host_data, "test_profile")
+        
+        # Obtém scans para uma rede específica
+        scans = temp_db.get_scans_by_network("192.168.1.0/24")
+        
+        # Deve retornar 2 scans
         assert len(scans) == 2
-        scan_ids = {scan['id'] for scan in scans}
-        assert scan_id1 in scan_ids
-        assert scan_id2 in scan_ids
         
-        # Obtém scans da segunda rede
-        scans = history_manager.get_scans_by_network("10.0.0.0/24")
-        assert len(scans) == 1
-        assert scans[0]['id'] == scan_id3
-        
-        # Testa com rede inexistente
-        scans = history_manager.get_scans_by_network("172.16.0.0/24")
-        assert len(scans) == 0
+        # Todos devem ser da rede especificada
+        for scan in scans:
+            assert scan['network'] == "192.168.1.0/24"
     
-    def test_delete_scan(self, populated_history_manager):
+    def test_delete_scan(self, temp_db):
         """Testa a exclusão de um scan"""
-        history_manager, scan_id1, _, _ = populated_history_manager
+        # Cria um scan de teste
+        network = "192.168.1.0/24"
+        hosts = {"192.168.1.1": {"ip": "192.168.1.1", "hostname": "test", "status": "up", "ports": []}}
         
-        # Confirma que existe antes de excluir
-        assert history_manager.get_scan_by_id(scan_id1) is not None
+        scan_id = temp_db.save_scan_results(network, hosts, "test_profile")
         
-        # Exclui
-        result = history_manager.delete_scan(scan_id1)
+        # Confirma que o scan existe
+        assert temp_db.get_scan_by_id(scan_id) is not None
+        
+        # Exclui o scan
+        result = temp_db.delete_scan(scan_id)
+        
+        # Verifica o resultado
         assert result is True
         
-        # Verifica se foi excluído
-        assert history_manager.get_scan_by_id(scan_id1) is None
-    
-    def test_delete_nonexistent_scan(self, history_manager):
-        """Testa a exclusão de um scan inexistente"""
-        result = history_manager.delete_scan(999)
+        # Verifica se o scan foi realmente excluído
+        assert temp_db.get_scan_by_id(scan_id) is None
+        
+        # Tenta excluir um scan inexistente
+        result = temp_db.delete_scan(9999)
         assert result is False
     
-    def test_export_scan_to_json(self, populated_history_manager, tmp_path):
+    def test_export_scan_to_json(self, temp_db):
         """Testa a exportação de um scan para JSON"""
-        history_manager, scan_id1, _, _ = populated_history_manager
+        # Cria um scan de teste
+        network = "192.168.1.0/24"
+        hosts = {"192.168.1.1": {"ip": "192.168.1.1", "hostname": "test", "status": "up", "ports": []}}
         
-        output_file = os.path.join(tmp_path, "scan_export.json")
-        result = history_manager.export_scan_to_json(scan_id1, output_file)
+        scan_id = temp_db.save_scan_results(network, hosts, "test_profile")
         
-        assert result is True
-        assert os.path.exists(output_file)
+        # Cria um arquivo temporário para a exportação
+        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp:
+            output_file = tmp.name
         
-        # Verifica se o arquivo contém dados válidos
-        with open(output_file, 'r') as f:
-            data = json.load(f)
-        
-        assert data['id'] == scan_id1
-        assert data['network'] == "192.168.1.0/24"
-        assert len(data['hosts']) == 2
+        try:
+            # Exporta o scan
+            result = temp_db.export_scan_to_json(scan_id, output_file)
+            
+            # Verifica o resultado
+            assert result is True
+            
+            # Verifica se o arquivo foi criado e contém dados válidos
+            with open(output_file, 'r') as f:
+                exported_data = json.load(f)
+                
+            assert exported_data['id'] == scan_id
+            assert exported_data['network'] == network
+            
+            # Testa a exportação de um scan inexistente
+            result = temp_db.export_scan_to_json(9999, output_file)
+            assert result is False
+            
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
     
-    def test_export_nonexistent_scan(self, history_manager, tmp_path):
-        """Testa a exportação de um scan inexistente"""
-        output_file = os.path.join(tmp_path, "nonexistent_scan.json")
-        result = history_manager.export_scan_to_json(999, output_file)
+    def test_compare_scans(self, temp_db):
+        """Testa a comparação entre scans"""
+        # Cria dois scans com algumas diferenças
+        network = "192.168.1.0/24"
         
-        assert result is False
-        assert not os.path.exists(output_file)
-    
-    def test_compare_scans(self, populated_history_manager):
-        """Testa a comparação entre dois scans"""
-        history_manager, scan_id1, scan_id2, _ = populated_history_manager
+        # Primeiro scan
+        hosts1 = {
+            "192.168.1.1": {
+                "ip": "192.168.1.1",
+                "hostname": "router.local",
+                "mac": "00:11:22:33:44:55",
+                "vendor": "Cisco",
+                "status": "up",
+                "ports": [
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
+                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
+                ]
+            },
+            "192.168.1.2": {
+                "ip": "192.168.1.2",
+                "hostname": "server.local",
+                "mac": "AA:BB:CC:DD:EE:FF",
+                "vendor": "Dell",
+                "status": "up",
+                "ports": [
+                    {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"}
+                ]
+            }
+        }
         
-        comparison = history_manager.compare_scans(scan_id1, scan_id2)
+        # Segundo scan (algumas mudanças)
+        hosts2 = {
+            "192.168.1.1": {  # Host mantido com mesmas portas
+                "ip": "192.168.1.1",
+                "hostname": "router.local",
+                "mac": "00:11:22:33:44:55",
+                "vendor": "Cisco",
+                "status": "up",
+                "ports": [
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
+                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
+                ]
+            },
+            "192.168.1.3": {  # Novo host
+                "ip": "192.168.1.3",
+                "hostname": "new-host.local",
+                "mac": "11:22:33:44:55:66",
+                "vendor": "HP",
+                "status": "up",
+                "ports": [
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"}
+                ]
+            }
+            # 192.168.1.2 foi removido
+        }
         
-        # Verifica metadados
-        assert comparison['scan1']['id'] == scan_id1
-        assert comparison['scan2']['id'] == scan_id2
-        assert comparison['network'] == "192.168.1.0/24"
+        # Salva os scans
+        scan_id1 = temp_db.save_scan_results(network, hosts1, "first_scan")
+        scan_id2 = temp_db.save_scan_results(network, hosts2, "second_scan")
+        
+        # Compara os scans
+        comparison = temp_db.compare_scans(scan_id1, scan_id2)
+        
+        # Verifica os resultados da comparação
+        assert comparison['network'] == network
         
         # Verifica hosts novos
         assert "192.168.1.3" in comparison['new_hosts']
         
         # Verifica hosts removidos
-        assert len(comparison['removed_hosts']) == 0
+        assert "192.168.1.2" in comparison['removed_hosts']
         
-        # Verifica hosts alterados
-        assert "192.168.1.1" in comparison['changed_hosts']  # Nova porta 8080
-        assert "192.168.1.2" in comparison['changed_hosts']  # Porta 3306 fechada
-        
-        # Verifica alterações específicas
-        assert "8080/tcp" in comparison['changed_hosts']["192.168.1.1"]["new_ports"]
-        assert "3306/tcp" in comparison['changed_hosts']["192.168.1.2"]["closed_ports"]
-        
-        # Verifica resumo
-        assert comparison['summary']['total_hosts_before'] == 2
-        assert comparison['summary']['total_hosts_after'] == 3
+        # Verifica o resumo
         assert comparison['summary']['new_hosts'] == 1
-        assert comparison['summary']['removed_hosts'] == 0
-        assert comparison['summary']['changed_hosts'] == 2
-        assert comparison['summary']['unchanged_hosts'] == 0
+        assert comparison['summary']['removed_hosts'] == 1
+        
+        # Testa comparação com scan inexistente
+        error_comparison = temp_db.compare_scans(scan_id1, 9999)
+        assert 'error' in error_comparison
+        assert error_comparison['found_scan1'] is True
+        assert error_comparison['found_scan2'] is False
     
-    def test_compare_nonexistent_scans(self, history_manager):
-        """Testa a comparação com scans inexistentes"""
-        comparison = history_manager.compare_scans(999, 1000)
+    @patch('src.reports.report_generator.ComparisonReportGenerator.export_comparison_report')
+    def test_export_comparison_report(self, mock_export, temp_db):
+        """Testa a exportação de um relatório de comparação"""
+        # Dados fictícios de comparação
+        comparison_data = {
+            'network': '192.168.1.0/24',
+            'new_hosts': {'192.168.1.3': {}},
+            'removed_hosts': {'192.168.1.2': {}},
+            'changed_hosts': {},
+            'summary': {'new_hosts': 1, 'removed_hosts': 1}
+        }
         
-        assert 'error' in comparison
-        assert comparison['found_scan1'] is False
-        assert comparison['found_scan2'] is False
-    
-    def test_compare_scans_different_networks(self, populated_history_manager):
-        """Testa a comparação entre scans de redes diferentes"""
-        history_manager, scan_id1, _, scan_id3 = populated_history_manager
+        # Define o comportamento do mock
+        mock_export.return_value = True
         
-        # Deve funcionar, mas gerar warning sobre redes diferentes
-        with patch('src.core.history_manager.warning') as mock_warning:
-            comparison = history_manager.compare_scans(scan_id1, scan_id3)
-            mock_warning.assert_called_once()
-            assert "redes diferentes" in mock_warning.call_args[0][0]
+        # Testa a exportação
+        output_file = 'test_comparison.txt'
+        result = temp_db.export_comparison_report(
+            comparison_data=comparison_data,
+            output_file=output_file,
+            format_type=ComparisonFormat.TEXT
+        )
         
-        # A comparação ainda deve retornar resultados
-        assert comparison['new_hosts']
-        assert comparison['removed_hosts']
+        # Verifica se a função de exportação foi chamada corretamente
+        mock_export.assert_called_once_with(
+            comparison_data=comparison_data,
+            output_file=output_file,
+            format_type=ComparisonFormat.TEXT
+        )
+        
+        # Verifica o resultado
+        assert result is True

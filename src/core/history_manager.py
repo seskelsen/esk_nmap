@@ -69,19 +69,16 @@ class HistoryManager:
             cursor = conn.cursor()
             
             # Tabela de scans
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS scans (
+            cursor.execute('''CREATE TABLE IF NOT EXISTS scans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
                 network TEXT NOT NULL,
                 scan_profile TEXT NOT NULL,
                 total_hosts INTEGER NOT NULL
-            )
-            ''')
+            )''')
             
             # Tabela de hosts
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS hosts (
+            cursor.execute('''CREATE TABLE IF NOT EXISTS hosts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scan_id INTEGER NOT NULL,
                 ip TEXT NOT NULL,
@@ -91,20 +88,17 @@ class HistoryManager:
                 status TEXT NOT NULL,
                 FOREIGN KEY (scan_id) REFERENCES scans (id) ON DELETE CASCADE,
                 UNIQUE (scan_id, ip)
-            )
-            ''')
+            )''')
             
             # Tabela de portas/serviços
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS ports (
+            cursor.execute('''CREATE TABLE IF NOT EXISTS ports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 host_id INTEGER NOT NULL,
                 port TEXT NOT NULL,
                 service TEXT,
                 FOREIGN KEY (host_id) REFERENCES hosts (id) ON DELETE CASCADE,
                 UNIQUE (host_id, port)
-            )
-            ''')
+            )''')
             
             # Índices para melhorar a performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_scan_timestamp ON scans (timestamp)')
@@ -123,14 +117,15 @@ class HistoryManager:
     
     def save_scan_results(self, 
                          network: str, 
-                         hosts: Dict[str, HostInfo], 
+                         hosts: Dict[str, Union[Dict[str, Any], 'HostInfo']], 
                          scan_profile: str) -> int:
         """
         Salva os resultados de um scan no banco de dados.
         
         Args:
             network (str): Rede que foi escaneada (ex: 192.168.1.0/24)
-            hosts (Dict[str, HostInfo]): Dicionário de hosts descobertos
+            hosts (Dict[str, Union[Dict[str, Any], HostInfo]]): Dicionário de hosts descobertos
+                Pode ser um dicionário de objetos HostInfo ou um dicionário de dicionários
             scan_profile (str): Nome do perfil de scan utilizado
             
         Returns:
@@ -152,18 +147,33 @@ class HistoryManager:
             
             # Insere os hosts
             for ip, host_info in hosts.items():
+                # Verifica se host_info é um dicionário ou um objeto
+                if isinstance(host_info, dict):
+                    hostname = host_info.get('hostname', '')
+                    mac = host_info.get('mac', '')
+                    vendor = host_info.get('vendor', '')
+                    status = host_info.get('status', 'unknown')
+                    ports_list = host_info.get('ports', [])
+                else:
+                    # Assume que é um objeto HostInfo
+                    hostname = host_info.hostname
+                    mac = host_info.mac
+                    vendor = host_info.vendor
+                    status = host_info.status
+                    ports_list = host_info.ports
+                
                 cursor.execute(
                     'INSERT INTO hosts (scan_id, ip, hostname, mac, vendor, status) VALUES (?, ?, ?, ?, ?, ?)',
-                    (scan_id, ip, host_info.hostname, host_info.mac, host_info.vendor, host_info.status)
+                    (scan_id, ip, hostname, mac, vendor, status)
                 )
                 host_id = cursor.lastrowid
                 
                 # Insere as portas
-                if host_info.ports:
-                    for port_info in host_info.ports:
-                        if port_info.get('state', '').lower() == 'open':
+                if ports_list:
+                    for port_info in ports_list:
+                        if isinstance(port_info, dict) and port_info.get('state', '').lower() == 'open':
                             port_str = f"{port_info['port']}/{port_info['protocol']}"
-                            service = port_info['service']
+                            service = port_info.get('service', '')
                             cursor.execute(
                                 'INSERT INTO ports (host_id, port, service) VALUES (?, ?, ?)',
                                 (host_id, port_str, service)

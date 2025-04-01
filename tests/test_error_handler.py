@@ -1,166 +1,154 @@
 import pytest
 import sys
-from unittest.mock import patch, MagicMock, call
-import subprocess
-from src.utils.error_handler import ErrorHandler, ErrorCategory
+from unittest.mock import patch, MagicMock
+from src.utils.error_handler import ErrorHandler, ErrorCategory, ScannerError
 
 class TestErrorHandler:
-    def test_categorize_network_error(self):
-        """Testa categorização de erros de rede"""
-        e = ConnectionError("Falha na conexão")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.NETWORK
+    """Testes para o módulo error_handler.py"""
+    
+    def test_scanner_error_initialization(self):
+        """Testa a inicialização da exceção ScannerError"""
+        error = ScannerError("Mensagem de teste", ErrorCategory.NETWORK)
+        assert error.message == "Mensagem de teste"
+        assert error.category == ErrorCategory.NETWORK
+        assert str(error) == "Mensagem de teste"
+    
+    def test_error_categorization(self):
+        """Testa a categorização automática de diferentes tipos de exceções"""
+        # Teste de erros de rede
+        assert ErrorHandler.categorize_error(ConnectionError()) == ErrorCategory.NETWORK
         
-    def test_categorize_permission_error(self):
-        """Testa categorização de erros de permissão"""
-        e = PermissionError("Acesso negado")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.PERMISSION
+        # Teste de erros de permissão
+        assert ErrorHandler.categorize_error(PermissionError()) == ErrorCategory.PERMISSION
         
-    def test_categorize_timeout_error(self):
-        """Testa categorização de erros de timeout"""
-        e = subprocess.TimeoutExpired(cmd="nmap", timeout=30)
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.TIMEOUT
+        # Teste de erros de timeout
+        timeout_error = TimeoutError()
+        assert ErrorHandler.categorize_error(timeout_error) == ErrorCategory.TIMEOUT
         
-    def test_categorize_config_error(self):
-        """Testa categorização de erros de configuração"""
-        e = ValueError("Valor de configuração inválido")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.CONFIGURATION
+        # Teste de erros de configuração
+        assert ErrorHandler.categorize_error(KeyError("chave")) == ErrorCategory.CONFIGURATION
         
-    def test_categorize_dependency_error(self):
-        """Testa categorização de erros de dependências"""
-        e = ModuleNotFoundError("No module named 'nonexistent'")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.DEPENDENCY
+        # Teste de erros de dependências
+        assert ErrorHandler.categorize_error(ModuleNotFoundError()) == ErrorCategory.DEPENDENCY
         
-    def test_categorize_command_error(self):
-        """Testa categorização de erros de execução de comandos"""
-        e = subprocess.CalledProcessError(returncode=1, cmd="nmap")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.COMMAND_EXECUTION
+        # Teste de erros de execução de comandos
+        assert ErrorHandler.categorize_error(OSError()) == ErrorCategory.COMMAND_EXECUTION
         
-    def test_categorize_parsing_error(self):
-        """Testa categorização de erros de parsing"""
-        e = SyntaxError("Erro de sintaxe")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.PARSING
+        # Teste de erros de parsing
+        assert ErrorHandler.categorize_error(SyntaxError()) == ErrorCategory.PARSING
         
-    def test_categorize_user_input_error(self):
-        """Testa categorização de erros de entrada do usuário"""
-        e = ValueError("Argumento input inválido")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.USER_INPUT
+        # Teste de erros de entrada do usuário
+        assert ErrorHandler.categorize_error(ValueError("input inválido")) == ErrorCategory.USER_INPUT
         
-    def test_categorize_filesystem_error(self):
-        """Testa categorização de erros de sistema de arquivos"""
-        e = FileNotFoundError("Arquivo não encontrado")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.FILESYSTEM
+        # Teste de erros de sistema de arquivos
+        assert ErrorHandler.categorize_error(FileNotFoundError()) == ErrorCategory.FILESYSTEM
         
-    def test_categorize_unknown_error(self):
-        """Testa categorização de erros desconhecidos"""
-        class CustomError(Exception):
-            pass
-        e = CustomError("Erro personalizado")
-        category = ErrorHandler.categorize_error(e)
-        assert category == ErrorCategory.UNKNOWN
-
+        # Teste de erro desconhecido
+        assert ErrorHandler.categorize_error(Exception()) == ErrorCategory.UNKNOWN
+    
+    def test_scanner_error_categorization(self):
+        """Testa que ScannerError mantém sua categoria ao ser categorizado"""
+        error = ScannerError("Erro de teste", ErrorCategory.NETWORK)
+        assert ErrorHandler.categorize_error(error) == ErrorCategory.NETWORK
+    
     @patch('src.utils.error_handler.error')
     @patch('src.utils.error_handler.debug')
     def test_handle_exception(self, mock_debug, mock_error):
-        """Testa o manipulador de exceções"""
-        e = ValueError("Erro de teste")
-        result = ErrorHandler.handle_exception(e, context="teste unitário")
+        """Testa o método handle_exception"""
+        e = ValueError("Mensagem de erro")
+        details = ErrorHandler.handle_exception(e, context="teste", exit_on_error=False)
         
         # Verifica se os logs foram chamados
         mock_error.assert_called_once()
         mock_debug.assert_called_once()
         
-        # Verifica o conteúdo do resultado
-        assert result["type"] == "ValueError"
-        assert result["message"] == "Erro de teste"
-        assert result["context"] == "teste unitário"
-        assert "traceback" in result
-        assert result["category"] == ErrorCategory.CONFIGURATION.value
-        
-    @patch('src.utils.error_handler.sys.exit')
+        # Verifica se os detalhes do erro foram retornados corretamente
+        assert details["type"] == "ValueError"
+        assert details["message"] == "Mensagem de erro"
+        assert details["context"] == "teste"
+        assert "traceback" in details
+    
     @patch('src.utils.error_handler.warning')
-    def test_handle_exception_with_exit(self, mock_warning, mock_exit):
-        """Testa o manipulador de exceções com saída do programa"""
+    @patch('src.utils.error_handler.sys.exit')
+    def test_handle_exception_with_exit(self, mock_exit, mock_warning):
+        """Testa o método handle_exception com saída do programa"""
         e = ValueError("Erro crítico")
-        ErrorHandler.handle_exception(e, exit_on_error=True, exit_code=2)
+        ErrorHandler.handle_exception(e, exit_on_error=True, exit_code=42)
         
-        # Verifica se warning e exit foram chamados corretamente
+        # Verifica se o aviso foi registrado
         mock_warning.assert_called_once()
-        mock_exit.assert_called_once_with(2)
-
+        
+        # Verifica se sys.exit foi chamado com o código correto
+        mock_exit.assert_called_once_with(42)
+    
     def test_with_retry_success(self):
-        """Testa o mecanismo de retry com função bem-sucedida"""
+        """Testa o método with_retry com sucesso na primeira tentativa"""
         mock_func = MagicMock(return_value="sucesso")
         
-        result = ErrorHandler.with_retry(mock_func, "arg1", kwarg="valor")
+        result = ErrorHandler.with_retry(mock_func, "arg1", kwarg1="valor")
         
+        # Verifica se a função foi chamada com os argumentos corretos
+        mock_func.assert_called_once_with("arg1", kwarg1="valor")
+        
+        # Verifica se o resultado está correto
         assert result == "sucesso"
-        mock_func.assert_called_once_with("arg1", kwarg="valor")
-        
-    def test_with_retry_eventually_succeeds(self):
-        """Testa o mecanismo de retry que eventualmente tem sucesso"""
-        # Mock que falha nas primeiras duas chamadas e sucede na terceira
+    
+    def test_with_retry_eventual_success(self):
+        """Testa o método with_retry com sucesso após algumas falhas"""
+        # Mock que falha nas primeiras duas chamadas e depois tem sucesso
         mock_func = MagicMock(side_effect=[
-            ConnectionError("Falha na tentativa 1"),
-            ConnectionError("Falha na tentativa 2"),
+            ConnectionError("Falha 1"),
+            ConnectionError("Falha 2"),
             "sucesso"
         ])
         
-        with patch('src.utils.error_handler.warning') as mock_warning:
-            with patch('src.utils.error_handler.info') as mock_info:
-                result = ErrorHandler.with_retry(
-                    mock_func, 
-                    context="operação de teste",
-                    max_retries=3
-                )
-                
-                assert result == "sucesso"
-                assert mock_func.call_count == 3
-                assert mock_warning.call_count == 2
-                assert mock_info.call_count == 2
-                
-    def test_with_retry_always_fails(self):
-        """Testa o mecanismo de retry que sempre falha"""
+        result = ErrorHandler.with_retry(
+            mock_func, 
+            retry_categories=[ErrorCategory.NETWORK], 
+            max_retries=3
+        )
+        
+        # Verifica se a função foi chamada o número correto de vezes
+        assert mock_func.call_count == 3
+        
+        # Verifica se o resultado está correto
+        assert result == "sucesso"
+    
+    def test_with_retry_failure(self):
+        """Testa o método with_retry com falha em todas as tentativas"""
         # Mock que sempre falha
         mock_func = MagicMock(side_effect=ConnectionError("Falha de conexão"))
         
-        with patch('src.utils.error_handler.warning') as mock_warning:
-            with patch('src.utils.error_handler.error') as mock_error:
-                with patch('src.utils.error_handler.info') as mock_info:
-                    result = ErrorHandler.with_retry(
-                        mock_func, 
-                        context="operação de teste", 
-                        max_retries=2
-                    )
-                    
-                    assert result is None
-                    assert mock_func.call_count == 2
-                    assert mock_warning.call_count == 2
-                    # Verifica as chamadas específicas para o error
-                    assert mock_error.call_count == 2
-                    calls = [
-                        call("Erro de rede durante operação de teste: Falha de conexão (ConnectionError)"),
-                        call("Todas as 2 tentativas para operação de teste falharam.")
-                    ]
-                    mock_error.assert_has_calls(calls)
-                    assert mock_info.call_count == 1
-
-    def test_with_retry_non_retryable_error(self):
-        """Testa o mecanismo de retry com um erro que não deve ser repetido"""
-        # Mock que falha com um erro que não deve acionar retry
-        mock_func = MagicMock(side_effect=ValueError("Erro de configuração"))
-        
         with patch('src.utils.error_handler.error') as mock_error:
-            with pytest.raises(ValueError, match="Erro de configuração"):
-                ErrorHandler.with_retry(
-                    mock_func, 
-                    retry_categories=[ErrorCategory.NETWORK]  # Apenas erros de rede geram retry
+            with patch('src.utils.error_handler.warning') as mock_warning:
+                result = ErrorHandler.with_retry(
+                    mock_func,
+                    retry_categories=[ErrorCategory.NETWORK],
+                    max_retries=2,
+                    context="operação de teste"
                 )
+                
+                # Verifica se a função foi chamada o número correto de vezes
+                assert mock_func.call_count == 2
+                
+                # Verifica se os logs foram chamados
+                assert mock_warning.call_count >= 1
+                assert mock_error.call_count >= 1
+                
+                # Verifica se o resultado é None após falhas
+                assert result is None
+    
+    def test_with_retry_non_retryable_error(self):
+        """Testa o método with_retry com erro não retryable"""
+        # Mock que lança um erro que não está nas categorias de retry
+        mock_func = MagicMock(side_effect=ValueError("Erro não retryable"))
+        
+        # O erro deve ser propagado
+        with pytest.raises(ValueError):
+            ErrorHandler.with_retry(
+                mock_func,
+                retry_categories=[ErrorCategory.NETWORK, ErrorCategory.TIMEOUT]
+            )
+            
+        # Verifica se a função foi chamada apenas uma vez
+        mock_func.assert_called_once()

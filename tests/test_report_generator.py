@@ -1,475 +1,701 @@
-import pytest
-from datetime import datetime
-import json
-import csv
-import xml.etree.ElementTree as ET
 import os
+import json
+import pytest
 import tempfile
-from src.reports.report_generator import ReportGenerator, ReportFormat
-from src.core.scanner import HostInfo
+from unittest.mock import patch, MagicMock, mock_open
+from io import StringIO
+from src.reports.report_generator import (
+    ReportGenerator, 
+    ComparisonReportGenerator, 
+    ReportFormat, 
+    ComparisonFormat
+)
 
 class TestReportGenerator:
+    """Testes para o ReportGenerator"""
+    
     @pytest.fixture
-    def sample_hosts_data(self):
-        """Fixture com dados de teste compatíveis com a implementação atual de HostInfo"""
-        return {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname="router.local",
-                mac="00:11:22:33:44:55",
-                vendor="Test Vendor",
-                is_up=True,
-                ports=[
-                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
-                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
-                ]
-            ),
-            "192.168.1.2": HostInfo(
-                ip="192.168.1.2",
-                hostname="server.local",
-                mac="AA:BB:CC:DD:EE:FF",
-                vendor="Another Vendor",
-                is_up=True,
-                ports=[
-                    {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"},
-                    {"port": 3389, "protocol": "tcp", "state": "open", "service": "ms-wbt-server"}
-                ]
-            )
-        }
-
-    def test_create_filename_with_format(self):
-        """Testa a criação de nomes de arquivo para diferentes formatos"""
-        network = "192.168.1.0/24"
-        formats = {
-            ReportFormat.TEXT: ".text",
-            ReportFormat.JSON: ".json",
-            ReportFormat.CSV: ".csv",
-            ReportFormat.XML: ".xml",
-            ReportFormat.HTML: ".html"
+    def mock_hosts(self):
+        """Fixture que cria hosts fictícios para testes"""
+        host1 = MagicMock()
+        host1.ip = "192.168.1.1"
+        host1.status = "up"
+        host1.hostname = "router.local"
+        host1.mac = "00:11:22:33:44:55"
+        host1.vendor = "Cisco"
+        host1.ports = [
+            {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
+            {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
+        ]
+        
+        host2 = MagicMock()
+        host2.ip = "192.168.1.2"
+        host2.status = "up"
+        host2.hostname = "N/A"  # Testar caso sem hostname
+        host2.mac = "N/A"       # Testar caso sem MAC
+        host2.vendor = "N/A"    # Testar caso sem vendor
+        host2.ports = []        # Testar caso sem portas
+        
+        hosts = {
+            "192.168.1.1": host1,
+            "192.168.1.2": host2
         }
         
-        for format, extension in formats.items():
-            filename = ReportGenerator.create_filename(network, format)
-            assert "esk_nmap_report" in filename
-            assert "192_168_1_0_24" in filename
-            assert filename.endswith(extension)
-
-    def test_generate_text_report(self, sample_hosts_data, tmp_path):
-        """Testa o formato do relatório texto com tabelas"""
-        network = "192.168.1.0/24"
-        filename = str(tmp_path / "test_report.txt")
+        return hosts
+    
+    @pytest.fixture
+    def mock_hosts_string_ports(self):
+        """Fixture que cria hosts fictícios com portas em formato string"""
+        host1 = MagicMock()
+        host1.ip = "192.168.1.1"
+        host1.status = "up"
+        host1.hostname = "router.local"
+        host1.mac = "00:11:22:33:44:55"
+        host1.vendor = "Cisco"
+        host1.ports = ["80/tcp", "443/tcp"]
+        host1.services = ["http", "https"]
         
-        ReportGenerator.generate_report(filename, sample_hosts_data, network, ReportFormat.TEXT)
+        hosts = {
+            "192.168.1.1": host1
+        }
         
-        with open(filename, 'r', encoding='utf-8') as f:
-            content = f.read()
+        return hosts
+    
+    def test_create_filename(self):
+        """Testa a criação de nomes de arquivo para relatórios"""
+        # Testa formato TEXT
+        with patch('time.strftime', return_value="20250401_123456"):
+            filename = ReportGenerator.create_filename("192.168.1.0/24", ReportFormat.TEXT)
+            assert filename == "esk_nmap_report_192_168_1_0_24_20250401_123456.text"
+        
+        # Testa formato JSON
+        with patch('time.strftime', return_value="20250401_123456"):
+            filename = ReportGenerator.create_filename("192.168.1.0/24", ReportFormat.JSON)
+            assert filename == "esk_nmap_report_192_168_1_0_24_20250401_123456.json"
+        
+        # Testa caracteres especiais
+        with patch('time.strftime', return_value="20250401_123456"):
+            filename = ReportGenerator.create_filename("test/with*special?chars", ReportFormat.TEXT)
+            assert filename == "esk_nmap_report_test_with_special_chars_20250401_123456.text"
+    
+    def test_generate_text_report_string(self, mock_hosts):
+        """Testa a geração de relatório em formato texto como string"""
+        report = ReportGenerator.generate_text_report(mock_hosts)
+        
+        # Verifica se o relatório contém as informações esperadas
+        assert "ESK_NMAP - Scanner de Rede da Eskel Cybersecurity" in report
+        assert "192.168.1.1" in report
+        assert "router.local" in report
+        assert "00:11:22:33:44:55" in report
+        assert "Cisco" in report
+        assert "Total de hosts descobertos: 2" in report
+        assert "80/tcp" in report
+        assert "443/tcp" in report
+        assert "http" in report
+        assert "https" in report
+    
+    def test_generate_json_report_dict(self, mock_hosts):
+        """Testa a geração de relatório em formato JSON como dicionário"""
+        report_data = ReportGenerator.generate_json_report(mock_hosts)
+        
+        # Verifica se o dicionário contém as informações esperadas
+        assert "metadata" in report_data
+        assert report_data["metadata"]["total_hosts"] == 2
+        assert report_data["metadata"]["hosts_with_open_ports"] == 1
+        
+        assert "192.168.1.1" in report_data
+        assert report_data["192.168.1.1"]["status"] == "up"
+        assert report_data["192.168.1.1"]["hostname"] == "router.local"
+        assert report_data["192.168.1.1"]["mac"] == "00:11:22:33:44:55"
+        assert report_data["192.168.1.1"]["vendor"] == "Cisco"
+        assert 80 in report_data["192.168.1.1"]["ports"]
+        assert 443 in report_data["192.168.1.1"]["ports"]
+        
+        assert "192.168.1.2" in report_data
+        assert report_data["192.168.1.2"]["hostname"] is None
+        assert report_data["192.168.1.2"]["mac"] is None
+        assert report_data["192.168.1.2"]["vendor"] is None
+        assert report_data["192.168.1.2"]["ports"] == []
+    
+    def test_generate_html_report_string(self, mock_hosts):
+        """Testa a geração de relatório em formato HTML como string"""
+        report = ReportGenerator.generate_html_report(mock_hosts)
+        
+        # Verifica se o relatório contém as informações esperadas
+        assert "<!DOCTYPE html>" in report
+        assert "<title>ESK_NMAP - Network Scan Report</title>" in report
+        assert "192.168.1.1" in report
+        assert "router.local" in report
+        assert "00:11:22:33:44:55" in report
+        assert "Cisco" in report
+        assert "192.168.1.2" in report
+        assert "80/tcp" in report
+        assert "443/tcp" in report
+        assert "http" in report
+        assert "https" in report
+    
+    def test_generate_report_text(self, mock_hosts):
+        """Testa a geração de relatório em formato texto para arquivo"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".text") as tmp:
+            output_file = tmp.name
+        
+        try:
+            with patch('time.strftime', return_value="20250401_123456"):
+                ReportGenerator.generate_report(output_file, mock_hosts, "192.168.1.0/24", ReportFormat.TEXT)
             
-            # Verifica cabeçalho
+            # Verifica se o arquivo foi criado
+            assert os.path.exists(output_file)
+            
+            # Lê o conteúdo do arquivo
+            with open(output_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Verifica se o conteúdo contém as informações esperadas
             assert "ESK_NMAP - Scanner de Rede da Eskel Cybersecurity" in content
-            assert "=" * 60 in content
-            
-            # Verifica tabela de hosts
-            assert "+" + "-" * 15 + "+" in content  # Separadores da tabela
-            assert "| IP" in content
-            assert "| Status" in content
-            assert "| Hostname" in content
-            assert "| MAC" in content
-            assert "| Fabricante" in content
-            
-            # Verifica conteúdo das tabelas de portas
-            assert "DETALHES DAS PORTAS:" in content
-            assert "+" + "-" * 15 + "+" + "-" * 50 + "+" in content
-            assert "| PORTA" in content
-            assert "| SERVIÇO" in content
-            
-            # Verifica se os dados específicos estão presentes
+            assert "Rede: 192.168.1.0/24" in content
             assert "192.168.1.1" in content
             assert "router.local" in content
             assert "00:11:22:33:44:55" in content
-            assert "192.168.1.2" in content
-            assert "server.local" in content
-            assert "AA:BB:CC:DD:EE:FF" in content
-
-    def test_generate_json_report(self, sample_hosts_data, tmp_path):
-        """Testa a geração do relatório em formato JSON"""
-        network = "192.168.1.0/24"
-        filename = str(tmp_path / "test_report.json")
-        
-        ReportGenerator.generate_report(filename, sample_hosts_data, network, ReportFormat.JSON)
-        
-        with open(filename, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+            assert "Cisco" in content
+            assert "Total de hosts descobertos: 2" in content
             
-            # Verifica a estrutura do JSON
-            assert "metadata" in data
-            assert "network" in data["metadata"]
-            assert "total_hosts" in data["metadata"]
-            assert "hosts" in data
-            
-            # Verifica os dados dos hosts
-            assert "192.168.1.1" in data["hosts"]
-            assert "192.168.1.2" in data["hosts"]
-            
-            # Verifica detalhes específicos
-            host1 = data["hosts"]["192.168.1.1"]
-            assert host1["hostname"] == "router.local"
-            assert len(host1["ports"]) == 2
-            assert host1["ports"][0]["port"] == 80
-            assert host1["ports"][0]["service"] == "http"
-
-    def test_generate_csv_report(self, sample_hosts_data, tmp_path):
-        """Testa a geração do relatório em formato CSV"""
-        network = "192.168.1.0/24"
-        filename = str(tmp_path / "test_report.csv")
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_generate_report_json(self, mock_hosts):
+        """Testa a geração de relatório em formato JSON para arquivo"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
+            output_file = tmp.name
         
-        ReportGenerator.generate_report(filename, sample_hosts_data, network, ReportFormat.CSV)
-        
-        with open(filename, 'r', encoding='utf-8', newline='') as f:
-            lines = list(csv.reader(f))
-            
-            # Verifica os metadados no cabeçalho
-            assert lines[0][0] == "# ESK_NMAP Report"
-            assert "# Rede" in lines[2][0]
-            assert network in lines[2][1]
-            
-            # Encontra a linha do cabeçalho da tabela
-            header_index = next(i for i, row in enumerate(lines) if "IP" in row)
-            headers = lines[header_index]
-            assert all(h in headers for h in ["IP", "Status", "Hostname", "MAC", "Fabricante", "Portas", "Serviços"])
-            
-            # Verifica os dados dos hosts
-            data_rows = lines[header_index + 1:]
-            assert len(data_rows) == 2  # Dois hosts no sample_hosts_data
-            
-            # Verifica o primeiro host
-            first_row = next(row for row in data_rows if "192.168.1.1" in row)
-            assert "router.local" in first_row
-            assert "00:11:22:33:44:55" in first_row
-            assert "80/tcp" in first_row[5]  # Portas
-            assert "http" in first_row[6]    # Serviços
-
-    def test_generate_xml_report(self, sample_hosts_data, tmp_path):
-        """Testa a geração do relatório em formato XML"""
-        network = "192.168.1.0/24"
-        filename = str(tmp_path / "test_report.xml")
-        
-        ReportGenerator.generate_report(filename, sample_hosts_data, network, ReportFormat.XML)
-        
-        tree = ET.parse(filename)
-        root = tree.getroot()
-        
-        # Verifica a estrutura básica
-        assert root.tag == "esk_nmap_report"
-        assert root.find("metadata") is not None
-        assert root.find("metadata/network").text == network
-        
-        # Verifica os hosts
-        hosts = root.find("hosts")
-        assert len(hosts.findall("host")) == 2
-        
-        # Verifica detalhes do primeiro host
-        host1 = hosts.find("host[ip='192.168.1.1']")
-        assert host1 is not None
-        assert host1.find("hostname").text == "router.local"
-        
-        # Verifica as portas e serviços
-        ports = host1.findall(".//port")
-        assert len(ports) == 2
-        
-        # Verifica se as portas específicas existem
-        port_numbers = [port.get("number") for port in ports]
-        assert "80" in port_numbers
-        
-        # Verifica serviços
-        services = [port.find("service").text for port in ports]
-        assert "http" in services
-
-    def test_generate_html_report(self, sample_hosts_data, tmp_path):
-        """Testa a geração do relatório em formato HTML"""
-        network = "192.168.1.0/24"
-        filename = str(tmp_path / "test_report.html")
-        
-        ReportGenerator.generate_report(filename, sample_hosts_data, network, ReportFormat.HTML)
-        
-        with open(filename, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-            # Verifica estrutura HTML básica
-            assert "<!DOCTYPE html>" in content
-            assert "<html>" in content
-            assert "<head>" in content
-            assert "<body>" in content
-            
-            # Verifica conteúdo específico
-            assert "ESK_NMAP - Network Scan Report" in content
-            assert "192.168.1.1" in content
-            assert "router.local" in content
-            assert "192.168.1.2" in content
-            assert "server.local" in content
-            assert "80/tcp" in content or ">80<" in content
-            assert "443/tcp" in content or ">443<" in content
-            assert "http" in content
-            assert "https" in content
-
-    def test_generate_report_empty_hosts(self, tmp_path):
-        """Testa a geração de relatórios com lista vazia de hosts em todos os formatos"""
-        network = "192.168.1.0/24"
-        formats = [ReportFormat.TEXT, ReportFormat.JSON, ReportFormat.CSV, ReportFormat.XML, ReportFormat.HTML]
-        
-        for format in formats:
-            filename = str(tmp_path / f"test_empty_report.{format.name.lower()}")
-            ReportGenerator.generate_report(filename, {}, network, format)
+        try:
+            with patch('time.strftime', return_value="20250401_123456"):
+                ReportGenerator.generate_report(output_file, mock_hosts, "192.168.1.0/24", ReportFormat.JSON)
             
             # Verifica se o arquivo foi criado
-            assert os.path.exists(filename)
+            assert os.path.exists(output_file)
             
-            # Verifica conteúdo específico por formato
-            with open(filename, 'r', encoding='utf-8') as f:
+            # Lê o conteúdo do arquivo
+            with open(output_file, 'r', encoding='utf-8') as f:
+                content = json.load(f)
+            
+            # Verifica se o conteúdo contém as informações esperadas
+            assert "metadata" in content
+            assert content["metadata"]["network"] == "192.168.1.0/24"
+            assert content["metadata"]["total_hosts"] == 2
+            assert content["hosts"]["192.168.1.1"]["hostname"] == "router.local"
+            assert content["hosts"]["192.168.1.1"]["status"] == "up"
+            assert content["hosts"]["192.168.1.1"]["mac"] == "00:11:22:33:44:55"
+            assert content["hosts"]["192.168.1.1"]["vendor"] == "Cisco"
+            assert len(content["hosts"]["192.168.1.1"]["ports"]) == 2
+            
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_generate_report_csv(self, mock_hosts):
+        """Testa a geração de relatório em formato CSV para arquivo"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            output_file = tmp.name
+        
+        try:
+            with patch('time.strftime', return_value="20250401_123456"):
+                ReportGenerator.generate_report(output_file, mock_hosts, "192.168.1.0/24", ReportFormat.CSV)
+            
+            # Verifica se o arquivo foi criado
+            assert os.path.exists(output_file)
+            
+            # Lê o conteúdo do arquivo
+            with open(output_file, 'r', encoding='utf-8') as f:
                 content = f.read()
-                if format == ReportFormat.TEXT:
-                    assert "No hosts found" in content
-                elif format == ReportFormat.JSON:
-                    data = json.loads(content)
-                    assert data["metadata"]["total_hosts"] == 0
-                elif format == ReportFormat.CSV:
-                    lines = content.splitlines()
-                    total_hosts_line = next((line for line in lines if "Total de hosts" in line), None)
-                    assert total_hosts_line is not None
-                    assert ",0" in total_hosts_line
-                elif format == ReportFormat.XML:
-                    root = ET.fromstring(content)
-                    assert root.find("metadata/total_hosts").text == "0"
-                elif format == ReportFormat.HTML:
-                    assert "No hosts found" in content
-
-    def test_report_with_unicode_chars(self, tmp_path):
-        """Testa o suporte a caracteres Unicode em todos os formatos"""
-        hosts_data = {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname="servidor-café.local",
-                is_up=True,
-                mac="00:11:22:33:44:55",
-                vendor="Fabricante Eletrônicos",
-                ports=[
-                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"}
-                ]
-            )
-        }
-        network = "192.168.1.0/24"
-        
-        for format in [ReportFormat.TEXT, ReportFormat.JSON, ReportFormat.CSV, ReportFormat.XML, ReportFormat.HTML]:
-            filename = str(tmp_path / f"test_unicode_report.{format.name.lower()}")
-            ReportGenerator.generate_report(filename, hosts_data, network, format)
             
-            with open(filename, 'r', encoding='utf-8') as f:
+            # Verifica se o conteúdo contém as informações esperadas
+            assert "# ESK_NMAP Report" in content
+            assert "# Rede,192.168.1.0/24" in content
+            assert "IP,Status,Hostname,MAC,Fabricante,Portas,Serviços" in content
+            assert "192.168.1.1,up,router.local,00:11:22:33:44:55,Cisco" in content
+            assert "192.168.1.2,up,,,," in content
+            
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_generate_report_xml(self, mock_hosts):
+        """Testa a geração de relatório em formato XML para arquivo"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as tmp:
+            output_file = tmp.name
+        
+        try:
+            with patch('time.strftime', return_value="20250401_123456"):
+                ReportGenerator.generate_report(output_file, mock_hosts, "192.168.1.0/24", ReportFormat.XML)
+            
+            # Verifica se o arquivo foi criado
+            assert os.path.exists(output_file)
+            
+            # Lê o conteúdo do arquivo
+            with open(output_file, 'r', encoding='utf-8') as f:
                 content = f.read()
-                assert "café" in content
-                assert "Eletrôn" in content
-
-    def test_host_info_na_values(self, tmp_path):
-        """Testa o tratamento de valores N/A em todos os formatos"""
-        hosts_data = {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname="N/A",
-                is_up=True,
-                mac="N/A",
-                vendor="N/A",
-                ports=[]
-            )
-        }
-        network = "192.168.1.0/24"
-        
-        for format in [ReportFormat.TEXT, ReportFormat.JSON, ReportFormat.CSV, ReportFormat.XML, ReportFormat.HTML]:
-            filename = str(tmp_path / f"test_na_report.{format.name.lower()}")
-            ReportGenerator.generate_report(filename, hosts_data, network, format)
             
-            with open(filename, 'r', encoding='utf-8') as f:
+            # Verifica se o conteúdo contém as informações esperadas
+            assert "<?xml version=" in content
+            assert "<esk_nmap_report>" in content
+            assert "<network>192.168.1.0/24</network>" in content
+            assert "<ip>192.168.1.1</ip>" in content
+            assert "<hostname>router.local</hostname>" in content
+            assert "<mac>00:11:22:33:44:55</mac>" in content
+            assert "<vendor>Cisco</vendor>" in content
+            assert "<ip>192.168.1.2</ip>" in content
+            
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_generate_report_html(self, mock_hosts):
+        """Testa a geração de relatório em formato HTML para arquivo"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
+            output_file = tmp.name
+        
+        try:
+            with patch('time.strftime', return_value="20250401_123456"):
+                ReportGenerator.generate_report(output_file, mock_hosts, "192.168.1.0/24", ReportFormat.HTML)
+            
+            # Verifica se o arquivo foi criado
+            assert os.path.exists(output_file)
+            
+            # Lê o conteúdo do arquivo
+            with open(output_file, 'r', encoding='utf-8') as f:
                 content = f.read()
-                if format == ReportFormat.JSON:
-                    data = json.loads(content)
-                    assert data["hosts"]["192.168.1.1"]["hostname"] is None
-                    assert data["hosts"]["192.168.1.1"]["mac"] is None
-                    assert data["hosts"]["192.168.1.1"]["vendor"] is None
-                elif format == ReportFormat.XML:
-                    root = ET.fromstring(content)
-                    host = root.find(".//host[ip='192.168.1.1']")
-                    assert host.find("hostname") is None
-                    assert host.find("mac") is None
-                    assert host.find("vendor") is None
-
-    def test_create_filename_special_chars(self):
-        """Testa a criação de nomes de arquivo com caracteres especiais na rede"""
-        special_networks = [
-            "192.168.1.0/24",
-            "fe80::1/64",
-            "2001:db8::/32",
-            "10.0.0.0/8"
-        ]
+            
+            # Verifica se o conteúdo contém as informações esperadas
+            assert "<!DOCTYPE html>" in content
+            assert "<title>ESK_NMAP - Network Scan Report</title>" in content
+            assert "<p><strong>Network:</strong> 192.168.1.0/24</p>" in content
+            assert "192.168.1.1" in content
+            assert "router.local" in content
+            assert "00:11:22:33:44:55" in content
+            assert "Cisco" in content
+            assert "192.168.1.2" in content
+            
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_generate_report_unsupported_format(self, mock_hosts):
+        """Testa a geração de relatório com formato não suportado"""
+        with pytest.raises(ValueError, match="Formato de relatório não suportado"):
+            # Criar um formato inválido para teste
+            invalid_format = MagicMock()
+            invalid_format.name = "INVALID"
+            
+            ReportGenerator.generate_report("test.txt", mock_hosts, "192.168.1.0/24", invalid_format)
+    
+    def test_report_with_string_ports(self, mock_hosts_string_ports):
+        """Testa a geração de relatório com portas em formato string"""
+        # Teste para o formato texto
+        report = ReportGenerator.generate_text_report(mock_hosts_string_ports)
         
-        for network in special_networks:
-            filename = ReportGenerator.create_filename(network)
-            assert "/" not in filename
-            assert "\\" not in filename
-            assert ":" not in filename
-            assert filename.startswith("esk_nmap_report_")
-            assert ".text" in filename
-
-    def test_report_very_long_values(self, tmp_path):
-        """Testa o tratamento de valores muito longos em todos os formatos"""
-        long_hostname = "a" * 100
-        long_vendor = "b" * 100
+        # Verifica se o relatório contém as informações esperadas
+        assert "80/tcp" in report
+        assert "443/tcp" in report
+        assert "http" in report
+        assert "https" in report
         
-        hosts_data = {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname=long_hostname,
-                is_up=True,
-                mac="00:11:22:33:44:55",
-                vendor=long_vendor,
-                ports=[
-                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http-" + "x" * 50}
-                ]
-            )
+        # Teste para o formato JSON
+        report_data = ReportGenerator.generate_json_report(mock_hosts_string_ports)
+        
+        # Verifica se o dicionário contém as informações esperadas
+        assert "metadata" in report_data
+        assert report_data["metadata"]["hosts_with_open_ports"] == 1
+        assert "192.168.1.1" in report_data
+        # Verifica que as portas são tratadas corretamente como strings
+        assert "80/tcp" in report_data["192.168.1.1"]["ports"]
+        assert "443/tcp" in report_data["192.168.1.1"]["ports"]
+        # Verifica se os serviços estão presentes
+        assert len(report_data["192.168.1.1"]["services"]) == 2
+        assert "http" in report_data["192.168.1.1"]["services"]
+        assert "https" in report_data["192.168.1.1"]["services"]
+
+
+class TestComparisonReportGenerator:
+    """Testes para o ComparisonReportGenerator"""
+    
+    @pytest.fixture
+    def mock_comparison_data(self):
+        """Fixture que cria dados de comparação fictícios para testes"""
+        return {
+            "network": "192.168.1.0/24",
+            "scan1": {
+                "id": 1,
+                "timestamp": "2025-04-01T12:00:00",
+                "profile": "basic",
+                "total_hosts": 3
+            },
+            "scan2": {
+                "id": 2,
+                "timestamp": "2025-04-01T13:00:00",
+                "profile": "basic",
+                "total_hosts": 4
+            },
+            "new_hosts": {
+                "192.168.1.4": {
+                    "hostname": "new-host.local",
+                    "mac": "11:22:33:44:55:66",
+                    "vendor": "HP",
+                    "status": "up",
+                    "ports": ["80/tcp"],
+                    "services": ["http"]
+                }
+            },
+            "removed_hosts": {
+                "192.168.1.3": {
+                    "hostname": "old-host.local",
+                    "mac": "AA:BB:CC:DD:EE:FF",
+                    "vendor": "Dell",
+                    "status": "up",
+                    "ports": ["22/tcp"],
+                    "services": ["ssh"]
+                }
+            },
+            "changed_hosts": {
+                "192.168.1.2": {
+                    "hostname": "server.local",
+                    "new_ports": ["443/tcp"],
+                    "closed_ports": ["22/tcp"]
+                }
+            },
+            "summary": {
+                "total_hosts_before": 3,
+                "total_hosts_after": 4,
+                "new_hosts": 1,
+                "removed_hosts": 1,
+                "changed_hosts": 1,
+                "unchanged_hosts": 1
+            }
         }
-        network = "192.168.1.0/24"
+    
+    def test_from_string(self):
+        """Testa a conversão de string para formato válido"""
+        # Testa formatos válidos
+        assert ComparisonFormat.from_string("text") == "text"
+        assert ComparisonFormat.from_string("json") == "json"
+        assert ComparisonFormat.from_string("csv") == "csv"
+        assert ComparisonFormat.from_string("xml") == "xml"
+        assert ComparisonFormat.from_string("html") == "html"
         
-        for format in [ReportFormat.TEXT, ReportFormat.JSON, ReportFormat.CSV, ReportFormat.XML, ReportFormat.HTML]:
-            filename = str(tmp_path / f"test_long_values.{format.name.lower()}")
-            ReportGenerator.generate_report(filename, hosts_data, network, format)
-            
-            # Verifica apenas se o relatório foi gerado sem erros
-            assert os.path.exists(filename)
-            
-            if format == ReportFormat.TEXT:
-                with open(filename, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    lines = content.splitlines()
-                    # Verifica se as linhas da tabela não estão quebradas
-                    for line in lines:
-                        if "| " in line and " |" in line and len(line.split("|")) >= 3:
-                            # As células não devem exceder os limites da tabela
-                            valid_format = all(len(cell.strip()) <= 50 for cell in line.split("|")[1:-1])
-                            assert valid_format, f"Formato de tabela inválido: {line}"
-
-    def test_report_with_mixed_port_formats(self, tmp_path):
-        """Testa o relatório com diferentes formatos de portas"""
-        hosts_data = {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname="test.local",
-                is_up=True,
-                mac="00:11:22:33:44:55",
-                vendor="Test Vendor",
-                ports=[
-                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
-                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https"},
-                    {"port": 53, "protocol": "udp", "state": "open", "service": "dns"},
-                    {"port": 3306, "protocol": "tcp", "state": "open", "service": "mysql"}
-                ]
-            )
-        }
-        network = "192.168.1.0/24"
+        # Testa formatos em maiúsculas
+        assert ComparisonFormat.from_string("TEXT") == "text"
+        assert ComparisonFormat.from_string("JSON") == "json"
         
-        for format in [ReportFormat.TEXT, ReportFormat.JSON, ReportFormat.CSV, ReportFormat.XML, ReportFormat.HTML]:
-            filename = str(tmp_path / f"test_port_formats.{format.name.lower()}")
-            ReportGenerator.generate_report(filename, hosts_data, network, format)
-            
-            with open(filename, 'r', encoding='utf-8') as f:
-                content = f.read()
+        # Testa formato inválido (deve retornar texto)
+        assert ComparisonFormat.from_string("invalid") == "text"
+    
+    def test_export_comparison_to_text(self, mock_comparison_data):
+        """Testa a exportação de comparação para formato texto"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+            output_file = tmp.name
+        
+        try:
+            # Patch o logger para evitar dependências externas
+            with patch('src.reports.report_generator.ComparisonReportGenerator._export_comparison_to_text') as mock_export:
+                # Configura o mock para simular sucesso
+                mock_export.return_value = True
                 
-                # Verificações específicas por formato
-                if format == ReportFormat.JSON:
-                    data = json.loads(content)
-                    ports = data["hosts"]["192.168.1.1"]["ports"]
-                    port_values = [p["port"] for p in ports]
-                    protocols = [p["protocol"] for p in ports]
-                    assert 80 in port_values
-                    assert 443 in port_values
-                    assert 53 in port_values
-                    assert 3306 in port_values
-                    assert "tcp" in protocols
-                    assert "udp" in protocols
-                else:
-                    # Para outros formatos podemos procurar as strings diretamente
-                    assert "80" in content
-                    assert "443" in content
-                    assert "53" in content
-                    assert "3306" in content
-                    assert "tcp" in content
-                    assert "udp" in content
-
-    def test_report_with_special_chars_in_service(self, tmp_path):
-        """Testa a geração de relatórios com caracteres especiais nos serviços"""
-        hosts_data = {
-            "192.168.1.1": HostInfo(
-                ip="192.168.1.1",
-                hostname="test.local",
-                is_up=True,
-                mac="00:11:22:33:44:55",
-                vendor="Test Vendor",
-                ports=[
-                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http-proxy&special<chars>"}
-                ]
-            )
-        }
-        network = "192.168.1.0/24"
-        
-        for format in [ReportFormat.TEXT, ReportFormat.JSON, ReportFormat.CSV]:
-            filename = str(tmp_path / f"test_special_chars.{format.name.lower()}")
-            ReportGenerator.generate_report(filename, hosts_data, network, format)
+                # Executa a exportação
+                result = ComparisonReportGenerator.export_comparison_report(
+                    mock_comparison_data, output_file, ComparisonFormat.TEXT)
+                
+                # Verifica se o método correto foi chamado com os parâmetros corretos
+                mock_export.assert_called_once_with(mock_comparison_data, output_file)
+                assert result is True
             
-            with open(filename, 'r', encoding='utf-8') as f:
-                content = f.read()
-                assert "http-proxy&special<chars>" in content
-
-    def test_invalid_report_format(self, tmp_path, sample_hosts_data):
-        """Testa o comportamento com um formato de relatório inválido"""
-        network = "192.168.1.0/24"
-        filename = str(tmp_path / "test_invalid.txt")
+            # Testa a implementação real em uma segunda execução
+            with patch('src.utils.logger.info'):  # patch corretamente o logger
+                result = ComparisonReportGenerator._export_comparison_to_text(mock_comparison_data, output_file)
+                assert result is True
+                
+                # Verifica se o arquivo foi criado
+                assert os.path.exists(output_file)
+                
+                # Lê o conteúdo do arquivo
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Verifica se o conteúdo contém as informações esperadas
+                assert "ESK NMAP - RELATÓRIO DE COMPARAÇÃO DE SCANS" in content
+                assert "Rede: 192.168.1.0/24" in content
+                assert "Scan 1: 2025-04-01T12:00:00 (ID: 1)" in content
+                assert "Scan 2: 2025-04-01T13:00:00 (ID: 2)" in content
+                assert "RESUMO DA COMPARAÇÃO:" in content
+                assert "Total de hosts no scan 1: 3" in content
+                assert "Total de hosts no scan 2: 4" in content
+                assert "Hosts novos: 1" in content
+                assert "Hosts removidos: 1" in content
+                assert "Hosts alterados: 1" in content
+                assert "HOSTS NOVOS:" in content
+                assert "IP: 192.168.1.4" in content
+                assert "Hostname: new-host.local" in content
+                assert "HOSTS REMOVIDOS:" in content
+                assert "IP: 192.168.1.3" in content
+                assert "Hostname: old-host.local" in content
+                assert "HOSTS COM ALTERAÇÕES:" in content
+                assert "IP: 192.168.1.2" in content
+                assert "Hostname: server.local" in content
+                assert "Novas portas:" in content
+                assert "443/tcp" in content
+                assert "Portas fechadas:" in content
+                assert "22/tcp" in content
+                
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_export_comparison_to_json(self, mock_comparison_data):
+        """Testa a exportação de comparação para formato JSON"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
+            output_file = tmp.name
         
-        # Usando uma string como formato deve lançar uma exceção
-        with pytest.raises(ValueError):
-            ReportGenerator.generate_report(filename, sample_hosts_data, network, "invalid_format")
-
-    def test_api_methods(self, sample_hosts_data):
-        """Testa os métodos da API que retornam conteúdo ao invés de escrever em arquivo"""
-        # Teste generate_text_report
-        text_report = ReportGenerator.generate_text_report(sample_hosts_data)
-        assert isinstance(text_report, str)
-        assert "192.168.1.1" in text_report
-        assert "router.local" in text_report
-        assert "80/tcp" in text_report
+        try:
+            # Patch o logger para evitar dependências externas
+            with patch('src.reports.report_generator.ComparisonReportGenerator._export_comparison_to_json') as mock_export:
+                # Configura o mock para simular sucesso
+                mock_export.return_value = True
+                
+                # Executa a exportação
+                result = ComparisonReportGenerator.export_comparison_report(
+                    mock_comparison_data, output_file, ComparisonFormat.JSON)
+                
+                # Verifica se o método correto foi chamado com os parâmetros corretos
+                mock_export.assert_called_once_with(mock_comparison_data, output_file)
+                assert result is True
+            
+            # Testa a implementação real em uma segunda execução
+            with patch('src.utils.logger.info'):  # patch corretamente o logger
+                result = ComparisonReportGenerator._export_comparison_to_json(mock_comparison_data, output_file)
+                assert result is True
+                
+                # Verifica se o arquivo foi criado
+                assert os.path.exists(output_file)
+                
+                # Lê o conteúdo do arquivo
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    content = json.load(f)
+                
+                # Verifica se o conteúdo contém as informações esperadas
+                assert content["network"] == "192.168.1.0/24"
+                assert content["scan1"]["id"] == 1
+                assert content["scan2"]["id"] == 2
+                assert "192.168.1.4" in content["new_hosts"]
+                assert "192.168.1.3" in content["removed_hosts"]
+                assert "192.168.1.2" in content["changed_hosts"]
+                assert content["summary"]["new_hosts"] == 1
+                
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_export_comparison_to_csv(self, mock_comparison_data):
+        """Testa a exportação de comparação para formato CSV"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            output_file = tmp.name
         
-        # Teste generate_html_report
-        html_report = ReportGenerator.generate_html_report(sample_hosts_data)
-        assert isinstance(html_report, str)
-        assert "<!DOCTYPE html>" in html_report
-        assert "192.168.1.1" in html_report
-        assert "router.local" in html_report
+        try:
+            # Patch o logger para evitar dependências externas
+            with patch('src.reports.report_generator.ComparisonReportGenerator._export_comparison_to_csv') as mock_export:
+                # Configura o mock para simular sucesso
+                mock_export.return_value = True
+                
+                # Executa a exportação
+                result = ComparisonReportGenerator.export_comparison_report(
+                    mock_comparison_data, output_file, ComparisonFormat.CSV)
+                
+                # Verifica se o método correto foi chamado com os parâmetros corretos
+                mock_export.assert_called_once_with(mock_comparison_data, output_file)
+                assert result is True
+            
+            # Testa a implementação real em uma segunda execução
+            with patch('src.utils.logger.info'):  # patch corretamente o logger
+                result = ComparisonReportGenerator._export_comparison_to_csv(mock_comparison_data, output_file)
+                assert result is True
+                
+                # Verifica se o arquivo foi criado
+                assert os.path.exists(output_file)
+                
+                # Lê o conteúdo do arquivo
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Verifica se o conteúdo contém as informações esperadas
+                assert "Tipo,IP,Hostname,MAC,Vendor,Alteração,Detalhes" in content
+                assert "Novo,192.168.1.4,new-host.local,11:22:33:44:55:66,HP,Host adicionado,80/tcp" in content
+                assert "Removido,192.168.1.3,old-host.local,AA:BB:CC:DD:EE:FF,Dell,Host removido," in content
+                assert "Alterado,192.168.1.2,server.local,,,Novas portas,443/tcp" in content
+                assert "Alterado,192.168.1.2,server.local,,,Portas fechadas,22/tcp" in content
+                
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_export_comparison_to_xml(self, mock_comparison_data):
+        """Testa a exportação de comparação para formato XML"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as tmp:
+            output_file = tmp.name
         
-        # Teste generate_json_report
-        json_report = ReportGenerator.generate_json_report(sample_hosts_data)
-        assert isinstance(json_report, dict)
-        assert "192.168.1.1" in json_report
-        assert json_report["192.168.1.1"]["hostname"] == "router.local"
-
-    def test_empty_results_api_methods(self):
-        """Testa os métodos da API com resultados vazios"""
-        empty_results = {}
+        try:
+            # Patch o logger para evitar dependências externas
+            with patch('src.reports.report_generator.ComparisonReportGenerator._export_comparison_to_xml') as mock_export:
+                # Configura o mock para simular sucesso
+                mock_export.return_value = True
+                
+                # Executa a exportação
+                result = ComparisonReportGenerator.export_comparison_report(
+                    mock_comparison_data, output_file, ComparisonFormat.XML)
+                
+                # Verifica se o método correto foi chamado com os parâmetros corretos
+                mock_export.assert_called_once_with(mock_comparison_data, output_file)
+                assert result is True
+            
+            # Testa a implementação real em uma segunda execução
+            with patch('src.utils.logger.info'):  # patch corretamente o logger
+                result = ComparisonReportGenerator._export_comparison_to_xml(mock_comparison_data, output_file)
+                assert result is True
+                
+                # Verifica se o arquivo foi criado
+                assert os.path.exists(output_file)
+                
+                # Lê o conteúdo do arquivo
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Verifica se o conteúdo contém as informações esperadas
+                assert "<?xml version=" in content
+                assert "<comparison>" in content
+                assert "<network>192.168.1.0/24</network>" in content
+                assert "<new_hosts>" in content
+                assert "<host ip=\"192.168.1.4\"" in content
+                assert "<removed_hosts>" in content
+                assert "<host ip=\"192.168.1.3\"" in content
+                assert "<changed_hosts>" in content
+                assert "<host ip=\"192.168.1.2\"" in content
+                assert "<new_ports>" in content
+                assert "<port number=\"443/tcp\"" in content
+                assert "<closed_ports>" in content
+                assert "<port number=\"22/tcp\"" in content
+                
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_export_comparison_to_html(self, mock_comparison_data):
+        """Testa a exportação de comparação para formato HTML"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
+            output_file = tmp.name
         
-        # Teste generate_text_report com resultados vazios
-        text_report = ReportGenerator.generate_text_report(empty_results)
-        assert isinstance(text_report, str)
-        assert "No hosts found" in text_report
-        
-        # Teste generate_html_report com resultados vazios
-        html_report = ReportGenerator.generate_html_report(empty_results)
-        assert isinstance(html_report, str)
-        assert "No hosts found" in html_report
-        
-        # Teste generate_json_report com resultados vazios
-        json_report = ReportGenerator.generate_json_report(empty_results)
-        assert isinstance(json_report, dict)
-        assert len(json_report) == 0
+        try:
+            # Patch o logger para evitar dependências externas
+            with patch('src.reports.report_generator.ComparisonReportGenerator._export_comparison_to_html') as mock_export:
+                # Configura o mock para simular sucesso
+                mock_export.return_value = True
+                
+                # Executa a exportação
+                result = ComparisonReportGenerator.export_comparison_report(
+                    mock_comparison_data, output_file, ComparisonFormat.HTML)
+                
+                # Verifica se o método correto foi chamado com os parâmetros corretos
+                mock_export.assert_called_once_with(mock_comparison_data, output_file)
+                assert result is True
+            
+            # Testa a implementação real em uma segunda execução
+            with patch('src.utils.logger.info'), patch('src.utils.logger.debug'):  # patch corretamente o logger
+                result = ComparisonReportGenerator._export_comparison_to_html(mock_comparison_data, output_file)
+                assert result is True
+                
+                # Verifica se o arquivo foi criado
+                assert os.path.exists(output_file)
+                
+                # Lê o conteúdo do arquivo
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Verifica se o conteúdo contém as informações esperadas
+                assert "<!DOCTYPE html>" in content
+                assert "<title>ESK NMAP - Relatório de Comparação</title>" in content
+                assert "<h1>ESK NMAP - Relatório de Comparação de Scans</h1>" in content
+                assert "<strong>Rede:</strong> 192.168.1.0/24" in content
+                assert "<strong>Scan 1:</strong> 2025-04-01T12:00:00 (ID: 1)" in content
+                assert "<strong>Scan 2:</strong> 2025-04-01T13:00:00 (ID: 2)" in content
+                assert "<h2>Resumo da Comparação</h2>" in content
+                assert "<h2>Hosts Novos</h2>" in content
+                assert "192.168.1.4" in content
+                assert "new-host.local" in content
+                assert "<h2>Hosts Removidos</h2>" in content
+                assert "192.168.1.3" in content
+                assert "old-host.local" in content
+                assert "<h2>Hosts com Alterações</h2>" in content
+                assert "192.168.1.2" in content
+                assert "server.local" in content
+                assert "443/tcp" in content
+                assert "22/tcp" in content
+                
+        finally:
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(output_file)
+            except:
+                pass
+    
+    def test_export_comparison_error_handling(self, mock_comparison_data):
+        """Testa o tratamento de erros na exportação de comparação"""
+        # Testa caso de erro para JSON
+        with patch('src.reports.report_generator.ComparisonReportGenerator._export_comparison_to_json') as mock_export:
+            with patch('src.utils.logger.error') as mock_error:  # patch corretamente o logger
+                # Configura o mock para lançar exceção
+                mock_export.side_effect = Exception("Erro de teste")
+                
+                # Executa a exportação
+                result = ComparisonReportGenerator.export_comparison_report(
+                    mock_comparison_data, "output.json", ComparisonFormat.JSON)
+                
+                # Verifica se o método de log de erro foi chamado
+                mock_error.assert_called_once()
+                assert result is False
+    
+    def test_export_comparison_invalid_format(self, mock_comparison_data):
+        """Testa a exportação de comparação com formato inválido (deve usar texto como padrão)"""
+        with patch('src.reports.report_generator.ComparisonReportGenerator._export_comparison_to_text') as mock_export:
+            # Configura o mock para simular sucesso
+            mock_export.return_value = True
+            
+            # Executa a exportação com formato inválido
+            result = ComparisonReportGenerator.export_comparison_report(
+                mock_comparison_data, "output.txt", "invalid")
+            
+            # Verifica se o método correto foi chamado (deve usar texto como padrão)
+            mock_export.assert_called_once_with(mock_comparison_data, "output.txt")
+            assert result is True

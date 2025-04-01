@@ -12,7 +12,7 @@ import sys
 import os
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger import json as jsonlogger
 import yaml
 
 class ESKLogger:

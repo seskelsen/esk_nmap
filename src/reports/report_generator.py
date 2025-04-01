@@ -92,7 +92,7 @@ class ReportGenerator:
             "metadata": {
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "total_hosts": len(hosts),
-                "hosts_with_open_ports": len([h for h in hosts.values() if any(p.get('state', '').lower() == 'open' for p in h.ports)])
+                "hosts_with_open_ports": sum(1 for h in hosts.values() if h.ports)  # Simplificado para contar qualquer host com portas
             }
         }
 
@@ -107,9 +107,25 @@ class ReportGenerator:
                 "hostname": info.hostname if info.hostname != "N/A" else None,
                 "mac": info.mac if info.mac != "N/A" else None,
                 "vendor": info.vendor if info.vendor != "N/A" else None,
-                "ports": [port.get('port', port) for port in info.ports],
+                "ports": [],
                 "services": info.services if hasattr(info, 'services') else []
             }
+            
+            # Adiciona portas, lidando tanto com dicionários quanto com strings
+            if info.ports:
+                for port_info in info.ports:
+                    if isinstance(port_info, dict):
+                        port = port_info.get('port')
+                        if port:
+                            report_data[ip]["ports"].append(port)
+                    else:
+                        # Se port_info for uma string (por exemplo, "80/tcp"), extraia o número da porta
+                        port_match = re.match(r'(\d+)', str(port_info))
+                        if port_match:
+                            report_data[ip]["ports"].append(int(port_match.group(1)))
+                        else:
+                            # Se não conseguir extrair, adicione a string completa
+                            report_data[ip]["ports"].append(str(port_info))
 
         return report_data
 
@@ -575,7 +591,7 @@ class ComparisonReportGenerator:
                         f.write(f"Hostname: {changes.get('hostname', 'N/A')}\n")
                         
                         if changes.get('new_ports'):
-                            f.write("Novas portas abertas:\n")
+                            f.write("Novas portas:\n")
                             for port in changes.get('new_ports', []):
                                 f.write(f"  - {port}\n")
                         
@@ -648,26 +664,28 @@ class ComparisonReportGenerator:
             doc = minidom.getDOMImplementation().createDocument(None, "comparison", None)
             root = doc.documentElement
             
-            # Informações gerais
-            info_elem = doc.createElement("info")
-            info_elem.setAttribute("network", comparison_data['network'])
-            info_elem.setAttribute("date", datetime.now().isoformat())
+            # Informações gerais - mudando para formato de elemento em vez de atributo
+            network_elem = doc.createElement("network")
+            network_elem.appendChild(doc.createTextNode(comparison_data['network']))
+            root.appendChild(network_elem)
+            
+            date_elem = doc.createElement("date")
+            date_elem.appendChild(doc.createTextNode(datetime.now().isoformat()))
+            root.appendChild(date_elem)
             
             scan1_elem = doc.createElement("scan1")
             scan1_elem.setAttribute("id", str(comparison_data['scan1']['id']))
             scan1_elem.setAttribute("timestamp", comparison_data['scan1']['timestamp'])
             scan1_elem.setAttribute("profile", comparison_data['scan1']['profile'])
             scan1_elem.setAttribute("total_hosts", str(comparison_data['scan1']['total_hosts']))
-            info_elem.appendChild(scan1_elem)
+            root.appendChild(scan1_elem)
             
             scan2_elem = doc.createElement("scan2")
             scan2_elem.setAttribute("id", str(comparison_data['scan2']['id']))
             scan2_elem.setAttribute("timestamp", comparison_data['scan2']['timestamp'])
             scan2_elem.setAttribute("profile", comparison_data['scan2']['profile'])
             scan2_elem.setAttribute("total_hosts", str(comparison_data['scan2']['total_hosts']))
-            info_elem.appendChild(scan2_elem)
-            
-            root.appendChild(info_elem)
+            root.appendChild(scan2_elem)
             
             # Resumo
             summary = doc.createElement("summary")

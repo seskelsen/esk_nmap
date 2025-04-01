@@ -58,7 +58,7 @@ class ErrorHandler:
             return ErrorCategory.PERMISSION
             
         # Erros de timeout
-        elif 'TimeoutExpired' in error_type or 'timeout' in error_message:
+        elif error_type in ('TimeoutExpired', 'TimeoutError') or 'timeout' in error_message:
             return ErrorCategory.TIMEOUT
             
         # Erros de configuração

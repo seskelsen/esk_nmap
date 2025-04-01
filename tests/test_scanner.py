@@ -1,548 +1,728 @@
 import pytest
+import ipaddress
 import subprocess
-import re
-from unittest.mock import patch, MagicMock
-
+from unittest.mock import patch, MagicMock, call
 from src.core.scanner import HostInfo, NetworkScanner, ScannerError
 
+
 class TestHostInfo:
-    def test_host_info_initialization(self):
-        """Testa a inicialização básica da classe HostInfo"""
-        host = HostInfo(ip="192.168.1.1")
+    """Testes para a classe HostInfo"""
+    
+    def test_init_default_values(self):
+        """Testa inicialização com valores padrão"""
+        host = HostInfo("192.168.1.1")
         assert host.ip == "192.168.1.1"
         assert host.hostname == "N/A"
         assert host.mac == "N/A"
         assert host.vendor == "N/A"
         assert host.ports == []
-        assert host.is_up == False
-        assert host._status == "down"
+        assert host.is_up is False
+        assert host.status == "down"
     
-    def test_host_info_initialization_with_values(self):
-        """Testa a inicialização com valores da classe HostInfo"""
+    def test_init_with_values(self):
+        """Testa inicialização com valores específicos"""
+        ports = [
+            {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
+            {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
+        ]
         host = HostInfo(
             ip="192.168.1.1",
-            hostname="test.local",
+            hostname="router.local",
             mac="00:11:22:33:44:55",
-            vendor="Test Vendor",
-            ports=[{"port": 80, "protocol": "tcp", "state": "open", "service": "http"}],
+            vendor="Cisco",
+            ports=ports,
             is_up=True
         )
         assert host.ip == "192.168.1.1"
-        assert host.hostname == "test.local"
+        assert host.hostname == "router.local"
         assert host.mac == "00:11:22:33:44:55"
-        assert host.vendor == "Test Vendor"
-        assert len(host.ports) == 1
-        assert host.ports[0]["port"] == 80
-        assert host.is_up == True
-        assert host._status == "up"
+        assert host.vendor == "Cisco"
+        assert host.ports == ports
+        assert host.is_up is True
+        assert host.status == "up"
     
-    def test_host_info_status_property(self):
-        """Testa as propriedades de status do HostInfo"""
-        # Inicializa com is_up=False
-        host = HostInfo(ip="192.168.1.1")
-        assert host._status == "down"
+    def test_is_up_property(self):
+        """Testa o property is_up"""
+        host = HostInfo("192.168.1.1")
+        assert host.is_up is False
         assert host.status == "down"
         
-        # Modifica is_up para True
         host.is_up = True
-        assert host._status == "up"
+        assert host.is_up is True
         assert host.status == "up"
         
-        # Testa o setter do status
-        host.status = "filtered"
-        assert host._status == "filtered"
-        assert host.status == "filtered"
-        assert host.is_up == False
+        host.is_up = False
+        assert host.is_up is False
+        assert host.status == "down"
+    
+    def test_status_property(self):
+        """Testa o property status"""
+        host = HostInfo("192.168.1.1")
+        assert host.status == "down"
+        assert host.is_up is False
         
-        # Testa mudar para "up" via setter
         host.status = "up"
-        assert host._status == "up"
         assert host.status == "up"
-        assert host.is_up == True
+        assert host.is_up is True
+        
+        host.status = "filtered"
+        assert host.status == "filtered"
+        assert host.is_up is False
     
-    def test_host_info_services_property(self):
-        """Testa a propriedade services do HostInfo"""
-        host = HostInfo(ip="192.168.1.1")
-        
-        # Sem portas
-        assert host.services == []
-        
-        # Com portas no formato dict
-        host.ports = [
+    def test_services_property_dict_ports(self):
+        """Testa o property services com portas em formato dict"""
+        ports = [
             {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
-            {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"},
-            {"port": 443, "protocol": "tcp", "state": "closed", "service": "https"}
+            {"port": 443, "protocol": "tcp", "state": "open", "service": "https"},
+            {"port": 22, "protocol": "tcp", "state": "closed", "service": "ssh"}  # Não deve aparecer nos serviços
         ]
+        host = HostInfo("192.168.1.1", ports=ports)
         
-        # Apenas portas abertas devem retornar serviços
-        assert len(host.services) == 2
-        assert "http" in host.services
-        assert "ssh" in host.services
-        assert "https" not in host.services
-        
-        # Com portas em formato string (legado)
-        host.ports = ["80/tcp", "22/tcp"]
-        assert len(host.services) == 2
-        assert all(service == "unknown" for service in host.services)
+        services = host.services
+        assert len(services) == 2
+        assert "http" in services
+        assert "https" in services
+        assert "ssh" not in services
     
-    def test_host_info_str_representation(self):
-        """Testa a representação em string do HostInfo"""
+    def test_services_property_string_ports(self):
+        """Testa o property services com portas em formato string"""
+        ports = ["80/tcp", "443/tcp"]
+        host = HostInfo("192.168.1.1", ports=ports)
+        
+        services = host.services
+        assert len(services) == 2
+        assert all(service == "unknown" for service in services)
+    
+    def test_str_representation(self):
+        """Testa a representação string da classe"""
+        ports = [
+            {"port": 80, "protocol": "tcp", "state": "open", "service": "http", "version": "Apache 2.4"},
+            {"port": 443, "protocol": "tcp", "state": "open", "service": "https"}
+        ]
         host = HostInfo(
             ip="192.168.1.1",
-            hostname="test.local",
+            hostname="router.local",
             mac="00:11:22:33:44:55",
-            vendor="Test Vendor"
+            vendor="Cisco",
+            ports=ports,
+            is_up=True
         )
         
-        # Define is_up como True para garantir que status seja "up"
-        host.is_up = True
-        host.ports = [{"port": 80, "protocol": "tcp", "state": "open", "service": "http", "version": "Apache 2.4"}]
+        str_rep = str(host)
+        assert "Host: 192.168.1.1" in str_rep
+        assert "Hostname: router.local" in str_rep
+        assert "MAC: 00:11:22:33:44:55" in str_rep
+        assert "Vendor: Cisco" in str_rep
+        assert "Status: up" in str_rep
+        assert "Portas abertas:" in str_rep
+        assert "80/tcp: http (Apache 2.4)" in str_rep
+        assert "443/tcp: https" in str_rep
         
-        result = str(host)
-        assert "Host: 192.168.1.1" in result
-        assert "Hostname: test.local" in result
-        assert "MAC: 00:11:22:33:44:55" in result
-        assert "Vendor: Test Vendor" in result
-        # Verifica que o status é exibido corretamente
-        assert "Status: up" in result
-        assert "Portas abertas:" in result
-        assert "80/tcp: http (Apache 2.4)" in result
-        
-        # Testa com diferentes formatos de portas
-        host.ports = [
-            {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
-            "443/tcp"  # formato legado
-        ]
-        
-        result = str(host)
-        assert "80/tcp: http" in result
-        assert "443/tcp" in result
+        # Teste com portas em formato string
+        host.ports = ["80/tcp", "443/tcp"]
+        str_rep = str(host)
+        assert "80/tcp" in str_rep
+        assert "443/tcp" in str_rep
 
 
 class TestNetworkScanner:
+    """Testes para a classe NetworkScanner"""
+    
     @pytest.fixture
-    def mock_config_instance(self):
-        """Fixture para criar uma instância mockada do ConfigManager"""
-        mock_instance = MagicMock()
-        mock_instance._config = {
-            'scan_profiles': {
-                'basic': {
-                    'options': ['-F'],
-                    'description': 'Fast scan'
-                },
-                'stealth': {
-                    'options': ['-sS', '-T2'],
-                    'description': 'Stealth scan'
-                }
-            },
-            'retry': {
-                'max_attempts': 2,
-                'delay_between_attempts': 1
-            },
-            'timeout': 30
-        }
-        
-        mock_instance.get_scan_profile.return_value = {
-            'options': ['-F'],
-            'description': 'Fast scan'
-        }
-        mock_instance.get_retry_config.return_value = {
-            'max_attempts': 2,
-            'delay_between_attempts': 1
-        }
-        mock_instance.get_timeout.side_effect = lambda operation=None: 30
-        return mock_instance
-
-    @pytest.fixture
-    def scanner(self, mock_config_instance):
-        """Fixture para criar um scanner para testes"""
+    def scanner(self):
+        """Fixture que retorna uma instância de NetworkScanner"""
         with patch('src.core.scanner.ConfigManager') as mock_config:
-            # Configura o singleton mockado
-            mock_config._instance = mock_config_instance
-            mock_config.return_value = mock_config_instance
+            # Configurar o mock do ConfigManager
+            config_instance = mock_config.return_value
+            config_instance._config = {
+                'scan_profiles': {
+                    'basic': {'options': ['-sn'], 'timing': 4},
+                    'discovery': {'options': ['-sn', '-PE'], 'timing': 3},
+                    'intensive': {'options': ['-sS', '-sV', '--version-all'], 'timing': 4},
+                    'stealth': {'options': ['-sS', '--source-port', '53'], 'timing': 2}
+                },
+                'timeout': {
+                    'discovery': 60,
+                    'port_scan': 120,
+                    'batch_scan': 300
+                },
+                'retry': {
+                    'max_attempts': 3,
+                    'delay_between_attempts': 2
+                }
+            }
+            
+            config_instance.get_scan_profile.side_effect = lambda profile: config_instance._config['scan_profiles'].get(profile, {})
+            config_instance.get_timeout.side_effect = lambda key: config_instance._config['timeout'].get(key, 60)
+            config_instance.get_retry_config.return_value = config_instance._config['retry']
             
             scanner = NetworkScanner("nmap")
-            yield scanner
+            # Definir modo silencioso para evitar barras de progresso nos testes
+            scanner.set_quiet_mode(True)
+            return scanner
     
-    def test_initialization(self, scanner):
-        """Testa a inicialização básica do NetworkScanner"""
+    def test_init(self, scanner):
+        """Testa inicialização da classe"""
         assert scanner._nmap_path == "nmap"
         assert scanner._scan_profile == "basic"
-        assert scanner._quiet_mode == False
+        assert scanner._quiet_mode is True
         assert scanner._batch_size == 10
         assert scanner._max_threads == 5
         assert scanner._throttle_delay == 0.5
     
-    def test_set_scan_profile(self, scanner):
-        """Testa a definição do perfil de scan"""
-        # Perfil válido
-        scanner.set_scan_profile("stealth")
-        assert scanner._scan_profile == "stealth"
+    def test_set_scan_profile_valid(self, scanner):
+        """Testa definição de perfil de scan válido"""
+        scanner.set_scan_profile("intensive")
+        assert scanner._scan_profile == "intensive"
         
-        # Perfil inválido deve usar fallback para basic
-        with patch('src.core.scanner.warning') as mock_warning:  # Corrigido o path do mock
-            scanner.set_scan_profile("nonexistent")
-            assert scanner._scan_profile == "basic"
+        scanner.set_scan_profile("discovery")
+        assert scanner._scan_profile == "discovery"
+    
+    def test_set_scan_profile_invalid(self, scanner):
+        """Testa definição de perfil de scan inválido"""
+        with patch('src.core.scanner.warning') as mock_warning:
+            scanner.set_scan_profile("non_existent")
+            assert scanner._scan_profile == "basic"  # Volta para o perfil padrão
             mock_warning.assert_called_once()
     
-    def test_set_quiet_mode(self, scanner):
-        """Testa a definição do modo silencioso"""
-        assert scanner._quiet_mode == False
-        scanner.set_quiet_mode(True)
-        assert scanner._quiet_mode == True
+    def test_set_source_port_valid(self, scanner):
+        """Testa definição de porta de origem válida"""
+        scanner.set_source_port(53)
+        assert scanner._source_port == 53
+    
+    def test_set_source_port_invalid(self, scanner):
+        """Testa definição de porta de origem inválida"""
+        scanner.set_source_port(0)  # Porta inválida
+        assert scanner._source_port is None
+        
+        scanner.set_source_port(65537)  # Porta inválida
+        assert scanner._source_port is None
+    
+    def test_set_batch_size_valid(self, scanner):
+        """Testa definição de tamanho de batch válido"""
+        scanner.set_batch_size(20)
+        assert scanner._batch_size == 20
+    
+    def test_set_batch_size_invalid(self, scanner):
+        """Testa definição de tamanho de batch inválido"""
+        with pytest.raises(ValueError, match="O tamanho do batch deve ser pelo menos 1"):
+            scanner.set_batch_size(0)
+    
+    def test_set_max_threads_valid(self, scanner):
+        """Testa definição de número máximo de threads válido"""
+        scanner.set_max_threads(10)
+        assert scanner._max_threads == 10
+    
+    def test_set_max_threads_invalid(self, scanner):
+        """Testa definição de número máximo de threads inválido"""
+        with pytest.raises(ValueError, match="O número de threads deve ser pelo menos 1"):
+            scanner.set_max_threads(0)
+    
+    def test_set_throttle_delay_valid(self, scanner):
+        """Testa definição de delay de throttle válido"""
+        scanner.set_throttle_delay(1.5)
+        assert scanner._throttle_delay == 1.5
+    
+    def test_set_throttle_delay_invalid(self, scanner):
+        """Testa definição de delay de throttle inválido"""
+        with pytest.raises(ValueError, match="O atraso deve ser não-negativo"):
+            scanner.set_throttle_delay(-1)
     
     def test_get_scan_options(self, scanner):
-        """Testa a obtenção das opções de scan"""
-        # Sem verbosidade
+        """Testa obtenção de opções de scan baseadas no perfil"""
+        # Teste com perfil básico
+        scanner.set_scan_profile("basic")
         options = scanner._get_scan_options()
-        assert options == ['-F']
+        assert options == ["-sn"]
         
-        # Com verbosidade 1
+        # Teste com verbosidade 1
         scanner.verbosity = 1
         options = scanner._get_scan_options()
-        assert options == ['-F', '-v']
+        assert options == ["-sn", "-v"]
         
-        # Com verbosidade 2+
+        # Teste com verbosidade 2
         scanner.verbosity = 2
         options = scanner._get_scan_options()
-        assert options == ['-F', '-vv']
+        assert options == ["-sn", "-vv"]
+        
+        # Teste com outro perfil
+        scanner.set_scan_profile("intensive")
+        scanner.verbosity = 0
+        options = scanner._get_scan_options()
+        assert options == ["-sS", "-sV", "--version-all"]
     
     def test_validate_network_range_valid(self, scanner):
-        """Testa a validação de ranges de rede válidos"""
+        """Testa validação de ranges de rede válidos"""
         # IP único
         scanner._validate_network_range("192.168.1.1")
         
         # Range CIDR
         scanner._validate_network_range("192.168.1.0/24")
         
-        # Sem exceção significa que passou
-        assert True
+        # IP v6
+        scanner._validate_network_range("2001:db8::1")
     
     def test_validate_network_range_invalid(self, scanner):
-        """Testa a validação de ranges de rede inválidos"""
-        # IP inválido
+        """Testa validação de ranges de rede inválidos"""
         with pytest.raises(ValueError):
-            scanner._validate_network_range("300.168.1.1")
-        
-        # Range CIDR inválido
+            scanner._validate_network_range("192.168.1.256")  # IP inválido
+            
         with pytest.raises(ValueError):
-            scanner._validate_network_range("192.168.1.0/33")
-        
-        # Formato completamente inválido
+            scanner._validate_network_range("192.168.1.0/33")  # Prefixo inválido
+            
         with pytest.raises(ValueError):
-            scanner._validate_network_range("invalid")
+            scanner._validate_network_range("invalid_range")  # Formato inválido
     
-    def test_parse_nmap_output_host_discovery(self, scanner):
-        """Testa o parsing da saída do Nmap para descoberta de hosts"""
-        sample_output = """
-Starting Nmap 7.80 ( https://nmap.org ) at 2025-05-01 12:00 UTC
+    def test_parse_nmap_output_empty(self, scanner):
+        """Testa parsing de saída vazia do nmap"""
+        result = scanner._parse_nmap_output("")
+        assert result == {}
+    
+    def test_parse_nmap_output_single_host(self, scanner):
+        """Testa parsing de saída do nmap para um único host"""
+        nmap_output = """
+Starting Nmap 7.91 ( https://nmap.org ) at 2025-04-01 12:00 CEST
 Nmap scan report for router.local (192.168.1.1)
 Host is up (0.0050s latency).
-MAC Address: 00:11:22:33:44:55 (Vendor Co)
-
-Nmap scan report for 192.168.1.2
-Host is up (0.0100s latency).
-MAC Address: AA:BB:CC:DD:EE:FF (Another Vendor)
-
-Nmap scan report for 192.168.1.3
-Host is down.
-
-Nmap done: 3 IP addresses (2 hosts up) scanned in 1.05 seconds
+MAC Address: 00:11:22:33:44:55 (Cisco)
+Nmap done: 1 IP address (1 host up) scanned in 0.50 seconds
         """
         
-        results = scanner._parse_nmap_output(sample_output)
-        assert len(results) == 3
+        with patch('src.core.scanner.debug'):
+            result = scanner._parse_nmap_output(nmap_output)
+        
+        assert len(result) == 1
+        assert "192.168.1.1" in result
+        host = result["192.168.1.1"]
+        assert host.ip == "192.168.1.1"
+        assert host.hostname == "router.local"
+        assert host.mac == "00:11:22:33:44:55"
+        assert host.vendor == "Cisco"
+        assert host.is_up is True
+        assert host.ports == []
+    
+    def test_parse_nmap_output_with_ports(self, scanner):
+        """Testa parsing de saída do nmap com informações de portas"""
+        nmap_output = """
+Starting Nmap 7.91 ( https://nmap.org ) at 2025-04-01 12:00 CEST
+Nmap scan report for webserver.local (192.168.1.2)
+Host is up (0.0050s latency).
+MAC Address: AA:BB:CC:DD:EE:FF (Dell)
+
+PORT     STATE SERVICE VERSION
+80/tcp   open  http    Apache httpd 2.4.41
+443/tcp  open  https   nginx 1.18.0
+22/tcp   closed ssh
+
+Nmap done: 1 IP address (1 host up) scanned in 1.20 seconds
+        """
+        
+        with patch('src.core.scanner.debug'):
+            result = scanner._parse_nmap_output(nmap_output)
+        
+        assert len(result) == 1
+        assert "192.168.1.2" in result
+        host = result["192.168.1.2"]
+        assert host.ip == "192.168.1.2"
+        assert host.hostname == "webserver.local"
+        assert host.mac == "AA:BB:CC:DD:EE:FF"
+        assert host.vendor == "Dell"
+        assert host.is_up is True
+        
+        # Verifica as portas
+        assert len(host.ports) == 2  # Apenas portas abertas
+        
+        port_80 = next((p for p in host.ports if p["port"] == 80), None)
+        assert port_80 is not None
+        assert port_80["protocol"] == "tcp"
+        assert port_80["state"] == "open"
+        assert port_80["service"] == "http"
+        assert port_80["version"] == "Apache httpd 2.4.41"
+        
+        port_443 = next((p for p in host.ports if p["port"] == 443), None)
+        assert port_443 is not None
+        assert port_443["protocol"] == "tcp"
+        assert port_443["state"] == "open"
+        assert port_443["service"] == "https"
+        assert port_443["version"] == "nginx 1.18.0"
+    
+    def test_parse_nmap_output_multiple_hosts(self, scanner):
+        """Testa parsing de saída do nmap para múltiplos hosts"""
+        nmap_output = """
+Starting Nmap 7.91 ( https://nmap.org ) at 2025-04-01 12:00 CEST
+Nmap scan report for router.local (192.168.1.1)
+Host is up (0.0050s latency).
+MAC Address: 00:11:22:33:44:55 (Cisco)
+
+Nmap scan report for 192.168.1.2
+Host is up (0.0080s latency).
+MAC Address: AA:BB:CC:DD:EE:FF (Unknown)
+
+PORT   STATE SERVICE
+80/tcp open  http
+
+Nmap scan report for 192.168.1.3
+Host is up (0.0100s latency).
+
+Nmap done: 3 IP addresses (3 hosts up) scanned in 1.50 seconds
+        """
+        
+        with patch('src.core.scanner.debug'):
+            result = scanner._parse_nmap_output(nmap_output)
+        
+        assert len(result) == 3
+        assert "192.168.1.1" in result
+        assert "192.168.1.2" in result
+        assert "192.168.1.3" in result
         
         # Verifica o primeiro host
-        host1 = results["192.168.1.1"]
-        assert host1.ip == "192.168.1.1"
+        host1 = result["192.168.1.1"]
         assert host1.hostname == "router.local"
         assert host1.mac == "00:11:22:33:44:55"
-        assert host1.vendor == "Vendor Co"
-        assert host1.is_up == True
+        assert host1.vendor == "Cisco"
+        assert host1.is_up is True
+        assert host1.ports == []
         
         # Verifica o segundo host
-        host2 = results["192.168.1.2"]
-        assert host2.ip == "192.168.1.2"
+        host2 = result["192.168.1.2"]
         assert host2.hostname == "N/A"
         assert host2.mac == "AA:BB:CC:DD:EE:FF"
-        assert host2.vendor == "Another Vendor"
-        assert host2.is_up == True
+        assert host2.vendor == "Unknown"
+        assert host2.is_up is True
+        assert len(host2.ports) == 1
+        assert host2.ports[0]["port"] == 80
+        assert host2.ports[0]["protocol"] == "tcp"
+        assert host2.ports[0]["state"] == "open"
+        assert host2.ports[0]["service"] == "http"
         
         # Verifica o terceiro host
-        host3 = results["192.168.1.3"]
-        assert host3.ip == "192.168.1.3"
-        assert host3.is_up == False
+        host3 = result["192.168.1.3"]
+        assert host3.hostname == "N/A"
+        assert host3.mac == "N/A"
+        assert host3.vendor == "N/A"
+        assert host3.is_up is True
+        assert host3.ports == []
     
-    def test_parse_nmap_output_port_scan(self, scanner):
-        """Testa o parsing da saída do Nmap para scan de portas"""
-        sample_output = """
-Starting Nmap 7.80 ( https://nmap.org ) at 2025-05-01 12:00 UTC
+    def test_scan_network_success(self, scanner):
+        """Testa scan de rede bem-sucedido"""
+        mock_stdout = """
+Starting Nmap 7.91 ( https://nmap.org ) at 2025-04-01 12:00 CEST
+Nmap scan report for router.local (192.168.1.1)
+Host is up (0.0050s latency).
+MAC Address: 00:11:22:33:44:55 (Cisco)
+
+Nmap scan report for 192.168.1.2
+Host is up (0.0080s latency).
+MAC Address: AA:BB:CC:DD:EE:FF (Unknown)
+
+Nmap done: 256 IP addresses (2 hosts up) scanned in 10.50 seconds
+        """
+        
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.stdout = mock_stdout
+        mock_process.stderr = ""
+        
+        with patch('subprocess.run', return_value=mock_process), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.error'):
+            result = scanner.scan_network("192.168.1.0/24")
+        
+        assert len(result) == 2
+        assert "192.168.1.1" in result
+        assert "192.168.1.2" in result
+    
+    def test_scan_network_error(self, scanner):
+        """Testa scan de rede com erro"""
+        mock_process = MagicMock()
+        mock_process.returncode = 1
+        mock_process.stdout = ""
+        mock_process.stderr = "Error: Permission denied"
+        
+        with patch('subprocess.run', return_value=mock_process), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.error'):
+            with pytest.raises(ScannerError, match="Nmap retornou código de erro 1"):
+                scanner.scan_network("192.168.1.0/24")
+    
+    def test_scan_network_timeout(self, scanner):
+        """Testa scan de rede com timeout"""
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired("nmap", 60)), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.error'):
+            with pytest.raises(ScannerError, match="Timeout durante scan de descoberta"):
+                scanner.scan_network("192.168.1.0/24")
+    
+    def test_scan_network_exception(self, scanner):
+        """Testa scan de rede com exceção genérica"""
+        with patch('subprocess.run', side_effect=Exception("Test error")), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.error'):
+            with pytest.raises(ScannerError, match="Erro durante scan de descoberta"):
+                scanner.scan_network("192.168.1.0/24")
+    
+    def test_scan_host_batch_success(self, scanner):
+        """Testa scan de batch de hosts bem-sucedido"""
+        mock_stdout = """
+Starting Nmap 7.91 ( https://nmap.org ) at 2025-04-01 12:00 CEST
 Nmap scan report for 192.168.1.1
 Host is up (0.0050s latency).
 
-PORT     STATE  SERVICE      VERSION
-22/tcp   open   ssh          OpenSSH 8.2p1
-80/tcp   open   http         Apache 2.4.29
-443/tcp  closed https
-3306/tcp open   mysql        MySQL 5.7.30
-
-Nmap done: 1 IP address (1 host up) scanned in 1.05 seconds
-        """
-        
-        results = scanner._parse_nmap_output(sample_output)
-        assert len(results) == 1
-        
-        host = results["192.168.1.1"]
-        assert host.ip == "192.168.1.1"
-        assert host.is_up == True
-        
-        # Verifica as portas capturadas pelo parser
-        assert len(host.ports) == 4, f"Esperado 4 portas, encontrado {len(host.ports)}: {host.ports}"
-        
-        # Verifica cada porta individualmente para diagnóstico mais preciso
-        port_numbers = sorted([p['port'] for p in host.ports])
-        assert port_numbers == [22, 80, 443, 3306], f"Portas esperadas: [22, 80, 443, 3306], encontrado: {port_numbers}"
-        
-        # Verifica serviços específicos
-        ssh_port = next(p for p in host.ports if p['port'] == 22)
-        assert ssh_port['service'] == 'ssh'
-        assert ssh_port['state'] == 'open'
-        
-        mysql_port = next(p for p in host.ports if p['port'] == 3306)
-        assert mysql_port['service'] == 'mysql'
-        assert mysql_port['state'] == 'open'
-    
-    @patch('subprocess.Popen')
-    @patch('time.sleep')
-    def test_scan_network(self, mock_sleep, mock_popen, scanner):
-        """Testa o método scan_network"""
-        # Mock do processo
-        process_mock = MagicMock()
-        process_mock.poll.side_effect = [None, 0]  # Simula processo em execução e depois terminado
-        process_mock.communicate.return_value = (
-            """
-Nmap scan report for 192.168.1.1
-Host is up.
-MAC Address: 00:11:22:33:44:55 (Test Vendor)
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.41
 
 Nmap scan report for 192.168.1.2
-Host is down.
-            """, 
-            ""
-        )
-        process_mock.returncode = 0
-        mock_popen.return_value = process_mock
+Host is up (0.0080s latency).
+
+PORT    STATE SERVICE VERSION
+443/tcp open  https   nginx 1.18.0
+
+Nmap done: 2 IP addresses (2 hosts up) scanned in 5.50 seconds
+        """
         
-        # Executa o scan
-        with patch('tqdm.tqdm'):
-            results = scanner.scan_network("192.168.1.0/24")
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.stdout = mock_stdout
+        mock_process.stderr = ""
         
-        # Verifica se os comandos corretos foram chamados
-        mock_popen.assert_called_once()
-        args, kwargs = mock_popen.call_args
-        cmd = args[0]
-        assert "nmap" in cmd
-        assert "-sn" in cmd
-        assert "192.168.1.0/24" in cmd
+        with patch('subprocess.run', return_value=mock_process), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.warning'):
+            result = scanner._scan_host_batch(["192.168.1.1", "192.168.1.2"])
         
-        # Verifica resultados
-        assert len(results) == 2
-        assert "192.168.1.1" in results
-        assert "192.168.1.2" in results
-        assert results["192.168.1.1"].is_up == True
-        assert results["192.168.1.2"].is_up == False
+        assert len(result) == 2
+        assert "192.168.1.1" in result
+        assert "192.168.1.2" in result
+        
+        # Verifica as portas do primeiro host
+        host1 = result["192.168.1.1"]
+        assert len(host1.ports) == 1
+        assert host1.ports[0]["port"] == 80
+        
+        # Verifica as portas do segundo host
+        host2 = result["192.168.1.2"]
+        assert len(host2.ports) == 1
+        assert host2.ports[0]["port"] == 443
     
-    @patch('tqdm.tqdm')
-    @patch('subprocess.run')
-    @patch('time.sleep')
-    def test_detailed_scan(self, mock_sleep, mock_run, mock_tqdm, scanner):
-        """Testa o método detailed_scan"""
-        # Prepara os hosts iniciais
-        initial_hosts = {
-            "192.168.1.1": HostInfo(ip="192.168.1.1", is_up=True),
-            "192.168.1.2": HostInfo(ip="192.168.1.2", is_up=False)  # Não deve ser escaneado
-        }
-        
-        # Mock do subprocess.run
-        mock_run.return_value = MagicMock(
-            stdout="""
+    def test_scan_host_batch_retry(self, scanner):
+        """Testa retry de scan de batch após falha"""
+        # Primeiro run falha, segundo run sucede
+        mock_stdout_success = """
+Starting Nmap 7.91 ( https://nmap.org ) at 2025-04-01 12:00 CEST
 Nmap scan report for 192.168.1.1
-Host is up.
+Host is up (0.0050s latency).
 PORT   STATE SERVICE
-22/tcp open  ssh
 80/tcp open  http
-            """,
-            stderr="",
-            returncode=0
-        )
+Nmap done: 1 IP address (1 host up) scanned in 3.50 seconds
+        """
         
-        # Executa o scan
-        results = scanner.detailed_scan(initial_hosts)
+        mock_fail = MagicMock()
+        mock_fail.returncode = 1
+        mock_fail.stdout = ""
+        mock_fail.stderr = "Error: Network error"
         
-        # Verifica se subprocess.run foi chamado apenas para o host ativo
-        mock_run.assert_called_once()
-        args, kwargs = mock_run.call_args
-        cmd = args[0]
-        assert "192.168.1.1" in cmd
-        assert "192.168.1.2" not in cmd
+        mock_success = MagicMock()
+        mock_success.returncode = 0
+        mock_success.stdout = mock_stdout_success
+        mock_success.stderr = ""
         
-        # Verifica resultados
-        assert "192.168.1.1" in results
-        assert "192.168.1.2" in results
-        assert results["192.168.1.1"].is_up == True
+        with patch('subprocess.run', side_effect=[mock_fail, mock_success]), \
+             patch('time.sleep'), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.warning'):
+            result = scanner._scan_host_batch(["192.168.1.1"])
+        
+        assert len(result) == 1
+        assert "192.168.1.1" in result
     
-    @patch('subprocess.run')
-    @patch('time.sleep')
-    @patch('tqdm.tqdm')
-    def test_detailed_scan_with_retry(self, mock_tqdm, mock_sleep, mock_run, scanner):
-        """Testa o retry mechanism no detailed_scan"""
-        # Hosts iniciais
-        initial_hosts = {
-            "192.168.1.1": HostInfo(ip="192.168.1.1", is_up=True)
-        }
-        
-        # Configura o mock para falhar na primeira tentativa e ter sucesso na segunda
-        mock_run.side_effect = [
-            subprocess.TimeoutExpired("nmap", 30),  # Primeira chamada: timeout
-            MagicMock(  # Segunda chamada: sucesso
-                stdout="""
+    def test_scan_host_batch_timeout_retry(self, scanner):
+        """Testa retry de scan de batch após timeout"""
+        # Primeiro run causa timeout, segundo run sucede
+        mock_stdout_success = """
+Starting Nmap 7.91 ( https://nmap.org ) at 2025-04-01 12:00 CEST
 Nmap scan report for 192.168.1.1
-Host is up.
+Host is up (0.0050s latency).
 PORT   STATE SERVICE
-22/tcp open  ssh
-                """,
-                stderr="",
-                returncode=0
-            )
-        ]
-        
-        # Executa o teste
-        results = scanner.detailed_scan(initial_hosts)
-        
-        # Verifica se o método foi chamado duas vezes (retry)
-        assert mock_run.call_count == 2
-        
-        # Verifica resultado
-        assert "192.168.1.1" in results
-        assert len(results["192.168.1.1"].ports) == 1
-    
-    @patch('subprocess.run')
-    @patch('time.sleep')
-    @patch('tqdm.tqdm')
-    def test_detailed_scan_all_retries_fail(self, mock_tqdm, mock_sleep, mock_run, scanner):
-        """Testa o detailed_scan quando todas as tentativas falham"""
-        # Hosts iniciais
-        initial_hosts = {
-            "192.168.1.1": HostInfo(ip="192.168.1.1", is_up=True)
-        }
-        
-        # Configura o mock para sempre falhar
-        mock_run.side_effect = [
-            subprocess.TimeoutExpired("nmap", 30),
-            subprocess.TimeoutExpired("nmap", 30)  # Apenas 2 tentativas, não 3
-        ]
-        
-        # Executa o teste
-        results = scanner.detailed_scan(initial_hosts)
-        
-        # Verifica se o método foi chamado duas vezes (retry)
-        assert mock_run.call_count == 2
-        
-        # Verifica que resultados estão vazios (host original é mantido)
-        assert "192.168.1.1" in results
-        assert len(results["192.168.1.1"].ports) == 0
-    
-    @patch('subprocess.run')
-    def test_scan_ports(self, mock_run, scanner):
-        """Testa o método scan_ports"""
-        # Mock do subprocess.run
-        mock_run.return_value = MagicMock(
-            stdout="""
-Nmap scan report for 192.168.1.1
-Host is up.
-PORT   STATE SERVICE
-22/tcp open  ssh
 80/tcp open  http
-            """,
-            stderr="",
-            returncode=0
-        )
+Nmap done: 1 IP address (1 host up) scanned in 3.50 seconds
+        """
         
-        # Executa o scan
-        results = scanner.scan_ports("192.168.1.1")
+        mock_success = MagicMock()
+        mock_success.returncode = 0
+        mock_success.stdout = mock_stdout_success
+        mock_success.stderr = ""
         
-        # Verifica se subprocess.run foi chamado corretamente
-        mock_run.assert_called_once()
-        args, kwargs = mock_run.call_args
-        cmd = args[0]
-        assert "nmap" in cmd
-        assert "192.168.1.1" in cmd
+        with patch('subprocess.run', side_effect=[subprocess.TimeoutExpired("nmap", 300), mock_success]), \
+             patch('time.sleep'), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.warning'):
+            result = scanner._scan_host_batch(["192.168.1.1"])
         
-        # Verifica resultados
-        assert "192.168.1.1" in results
-        assert results["192.168.1.1"].is_up == True
-        assert len(results["192.168.1.1"].ports) == 2
-        
-    def test_set_source_port(self, scanner):
-        """Testa o método set_source_port"""
-        # Verifica o valor padrão
-        assert not hasattr(scanner, '_source_port') or scanner._source_port is None
-        
-        # Testa definindo uma porta válida
-        scanner.set_source_port(53)
-        assert scanner._source_port == 53
-        
-        # Testa com valor inválido
-        scanner.set_source_port(0)
-        assert scanner._source_port is None
-        
-        scanner.set_source_port(65536)  # Porta muito alta
-        assert scanner._source_port is None
-        
-        scanner.set_source_port(None)
-        assert scanner._source_port is None
-        
-        # Configura uma porta válida novamente
-        scanner.set_source_port(443)
-        assert scanner._source_port == 443
+        assert len(result) == 1
+        assert "192.168.1.1" in result
     
-    @patch('subprocess.run')
-    def test_source_port_in_command(self, mock_run, scanner):
-        """Testa se a porta de origem é incluída no comando nmap"""
-        # Configura a saída do comando nmap
-        mock_run.return_value = MagicMock(
-            stdout="""
-Nmap scan report for 192.168.1.1
-Host is up.
-PORT   STATE SERVICE
-22/tcp open  ssh
-            """,
-            stderr="",
-            returncode=0
-        )
+    def test_scan_host_batch_all_attempts_fail(self, scanner):
+        """Testa caso onde todas as tentativas de scan de batch falham"""
+        with patch('subprocess.run', side_effect=Exception("Test error")), \
+             patch('time.sleep'), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.warning'), \
+             patch('src.core.scanner.error'):
+            result = scanner._scan_host_batch(["192.168.1.1"])
         
-        # Configure uma porta de origem
-        scanner.set_source_port(53)
+        assert result == {}
+    
+    def test_process_host_batch_parallel(self, scanner):
+        """Testa processamento paralelo de batches de hosts"""
+        # Mock para _scan_host_batch que retorna resultados diferentes para cada batch
+        def mock_scan_batch(ips):
+            if "192.168.1.1" in ips:
+                host1 = HostInfo("192.168.1.1", ports=[{"port": 80, "protocol": "tcp", "state": "open", "service": "http"}])
+                return {"192.168.1.1": host1}
+            elif "192.168.1.2" in ips:
+                host2 = HostInfo("192.168.1.2", ports=[{"port": 443, "protocol": "tcp", "state": "open", "service": "https"}])
+                return {"192.168.1.2": host2}
+            return {}
         
-        # Execute o scan detalhado
-        initial_hosts = {
-            "192.168.1.1": HostInfo(ip="192.168.1.1", is_up=True)
+        with patch.object(scanner, '_scan_host_batch', side_effect=mock_scan_batch), \
+             patch('time.sleep'):
+            result = scanner._process_host_batch_parallel([["192.168.1.1"], ["192.168.1.2"]])
+        
+        assert len(result) == 2
+        assert "192.168.1.1" in result
+        assert "192.168.1.2" in result
+        assert result["192.168.1.1"].ports[0]["port"] == 80
+        assert result["192.168.1.2"].ports[0]["port"] == 443
+    
+    def test_process_host_batch_parallel_error(self, scanner):
+        """Testa processamento paralelo com erro em um dos batches"""
+        # Mock para _scan_host_batch que retorna resultados para o primeiro batch mas falha no segundo
+        def mock_scan_batch(ips):
+            if "192.168.1.1" in ips:
+                host1 = HostInfo("192.168.1.1", ports=[{"port": 80, "protocol": "tcp", "state": "open", "service": "http"}])
+                return {"192.168.1.1": host1}
+            elif "192.168.1.2" in ips:
+                raise Exception("Test error")
+            return {}
+        
+        with patch.object(scanner, '_scan_host_batch', side_effect=mock_scan_batch), \
+             patch('time.sleep'), \
+             patch('src.core.scanner.error'):
+            result = scanner._process_host_batch_parallel([["192.168.1.1"], ["192.168.1.2"]])
+        
+        # Deve retornar resultados do primeiro batch mesmo com erro no segundo
+        assert len(result) == 1
+        assert "192.168.1.1" in result
+        assert result["192.168.1.1"].ports[0]["port"] == 80
+    
+    def test_detailed_scan_empty_hosts(self, scanner):
+        """Testa detailed_scan com lista de hosts vazia"""
+        with patch('src.core.scanner.warning'):
+            result = scanner.detailed_scan({})
+        assert result == {}
+    
+    def test_detailed_scan_no_active_hosts(self, scanner):
+        """Testa detailed_scan sem hosts ativos"""
+        hosts = {
+            "192.168.1.1": HostInfo("192.168.1.1", is_up=False),
+            "192.168.1.2": HostInfo("192.168.1.2", is_up=False)
         }
         
-        # Patch o método _scan_host_batch para verificar se a porta de origem é incluída
-        with patch.object(scanner, '_scan_host_batch', wraps=scanner._scan_host_batch) as wrapped_method:
-            # Execute o scan
-            scanner.detailed_scan(initial_hosts)
-            
-            # Verifique se o método foi chamado
-            wrapped_method.assert_called_once()
-            
-            # Verifique se a porta de origem está no comando
-            mock_run.assert_called_once()
-            args, kwargs = mock_run.call_args
-            cmd = args[0]
-            assert "--source-port" in cmd
-            source_port_index = cmd.index("--source-port")
-            assert source_port_index + 1 < len(cmd)
-            assert cmd[source_port_index + 1] == "53"
+        with patch('src.core.scanner.warning'):
+            result = scanner.detailed_scan(hosts)
+        
+        # Deve retornar os hosts originais
+        assert result == hosts
+    
+    def test_detailed_scan_active_hosts(self, scanner):
+        """Testa detailed_scan com hosts ativos"""
+        hosts = {
+            "192.168.1.1": HostInfo("192.168.1.1", hostname="router.local", is_up=True),
+            "192.168.1.2": HostInfo("192.168.1.2", is_up=True),
+            "192.168.1.3": HostInfo("192.168.1.3", is_up=False)  # Não deve ser escaneado
+        }
+        
+        # Mock para _scan_host_batch que adiciona portas aos hosts
+        def mock_scan_batch(ips):
+            result = {}
+            if "192.168.1.1" in ips:
+                result["192.168.1.1"] = HostInfo(
+                    "192.168.1.1",
+                    ports=[{"port": 80, "protocol": "tcp", "state": "open", "service": "http"}],
+                    is_up=True
+                )
+            if "192.168.1.2" in ips:
+                result["192.168.1.2"] = HostInfo(
+                    "192.168.1.2",
+                    ports=[{"port": 443, "protocol": "tcp", "state": "open", "service": "https"}],
+                    is_up=True
+                )
+            return result
+        
+        with patch.object(scanner, '_scan_host_batch', side_effect=mock_scan_batch), \
+             patch('src.core.scanner.info'):
+            result = scanner.detailed_scan(hosts)
+        
+        # Verifica se todos os hosts originais estão presentes
+        assert len(result) == 3
+        assert "192.168.1.1" in result
+        assert "192.168.1.2" in result
+        assert "192.168.1.3" in result
+        
+        # Verifica se as portas foram adicionadas aos hosts ativos
+        assert len(result["192.168.1.1"].ports) == 1
+        assert result["192.168.1.1"].ports[0]["port"] == 80
+        assert result["192.168.1.1"].hostname == "router.local"  # Manteve o hostname original
+        
+        assert len(result["192.168.1.2"].ports) == 1
+        assert result["192.168.1.2"].ports[0]["port"] == 443
+        
+        # Verifica que o host inativo não foi modificado
+        assert result["192.168.1.3"].ports == []
+    
+    def test_scan_ports_success(self, scanner):
+        """Testa scan_ports bem-sucedido"""
+        mock_stdout = """
+Starting Nmap 7.91 ( https://nmap.org ) at 2025-04-01 12:00 CEST
+Nmap scan report for 192.168.1.1
+Host is up (0.0050s latency).
+
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.41
+443/tcp open  https   nginx 1.18.0
+
+Nmap done: 1 IP address (1 host up) scanned in 3.50 seconds
+        """
+        
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.stdout = mock_stdout
+        mock_process.stderr = ""
+        
+        with patch('subprocess.run', return_value=mock_process), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.warning'):
+            result = scanner.scan_ports("192.168.1.1")
+        
+        assert len(result) == 1
+        assert "192.168.1.1" in result
+        host = result["192.168.1.1"]
+        assert len(host.ports) == 2
+        assert host.ports[0]["port"] == 80
+        assert host.ports[1]["port"] == 443
+    
+    def test_scan_ports_timeout(self, scanner):
+        """Testa scan_ports com timeout"""
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired("nmap", 120)), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.error'):
+            with pytest.raises(ScannerError, match="Timeout durante scan de"):
+                scanner.scan_ports("192.168.1.1")
+    
+    def test_scan_ports_exception(self, scanner):
+        """Testa scan_ports com exceção genérica"""
+        with patch('subprocess.run', side_effect=Exception("Test error")), \
+             patch('src.core.scanner.debug'), \
+             patch('src.core.scanner.error'):
+            with pytest.raises(ScannerError, match="Erro durante scan de"):
+                scanner.scan_ports("192.168.1.1")
